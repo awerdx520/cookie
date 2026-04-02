@@ -1,0 +1,100 @@
+# Cookie 工具配置文件示例
+# 放置于 ~/.cookie/config.yaml
+
+# 浏览器配置
+browser:
+  # 浏览器类型: chrome, firefox, edge, safari
+  type: chrome
+
+  # Chrome 特定配置
+  chrome:
+    # 用户配置目录（相对或绝对路径）
+    # 默认根据操作系统自动检测
+    profile: "Default"
+
+    # WSL2 特殊配置
+    wsl2:
+      # 是否启用 WSL2 模式自动检测
+      auto_detect: true
+
+      # Windows 用户名（自动检测失败时手动指定）
+      windows_user: "thomas"
+
+      # Windows Chrome 数据目录（自动检测失败时手动指定）
+      windows_data_path: "/mnt/c/Users/thomas/AppData/Local/Google/Chrome/User Data"
+
+# 域名映射配置
+# 将逻辑域名映射到实际 Cookie 域名
+domain_mappings:
+  api: "api.example.com"
+  auth: "auth.example.com"
+  dev: "dev.api.example.com"
+  prod: "api.example.com"
+
+# Cookie 别名配置
+# 为常用 Cookie 定义简短别名
+cookie_aliases:
+  token: "auth_token"
+  session: "sessionid"
+  csrf: "csrftoken"
+
+# 环境配置
+environments:
+  development:
+    domains:
+      api: "dev.api.example.com"
+    cookies:
+      token: "dev_auth_token"
+
+  production:
+    domains:
+      api: "api.example.com"
+    cookies:
+      token: "auth_token"
+
+# HTTP 服务配置（当使用 cookie-cli serve 时）
+http:
+  # 监听地址
+  host: "127.0.0.1"
+  port: 8080
+
+  # 认证（可选）
+  auth:
+    enabled: false
+    username: "admin"
+    password: "secret"
+
+  # CORS 配置
+  cors:
+    enabled: true
+    origins: ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+# 缓存配置
+cache:
+  # 缓存过期时间（秒）
+  expire_seconds: 300
+
+  # 最大缓存条目数
+  max_entries: 1000
+
+# 日志配置
+log:
+  # 日志级别: debug, info, warn, error
+  level: "info"
+
+  # 日志文件路径（可选）
+  file: "/tmp/cookie.log"
+
+  # 是否输出到控制台
+  console: true
+
+# 安全配置
+security:
+  # 是否允许输出加密的 Cookie 值
+  show_encrypted: false
+
+  # 敏感 Cookie 名称列表（日志中会模糊化）
+  sensitive_cookies: ["auth_token", "sessionid", "password", "secret"]
+
+  # 模糊化长度
+  obfuscate_length: 8

@@ -13,8 +13,10 @@ func main() {
 	getCmd := flag.NewFlagSet("get", flag.ExitOnError)
 	getDomain := getCmd.String("domain", "", "域名")
 	getName := getCmd.String("name", "", "Cookie 名称（可选）")
+	getBrowser := getCmd.String("browser", "", "浏览器类型: chrome, firefox（默认 chrome）")
 
 	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
+	listBrowser := listCmd.String("browser", "", "浏览器类型: chrome, firefox（默认 chrome）")
 
 	serveCmd := flag.NewFlagSet("serve", flag.ExitOnError)
 	servePort := serveCmd.String("port", "8080", "HTTP 服务端口")
@@ -31,10 +33,10 @@ func main() {
 			getCmd.PrintDefaults()
 			os.Exit(1)
 		}
-		handleGet(*getDomain, *getName)
+		handleGet(*getDomain, *getName, *getBrowser)
 	case "list":
 		listCmd.Parse(os.Args[2:])
-		handleList()
+		handleList(*listBrowser)
 	case "serve":
 		serveCmd.Parse(os.Args[2:])
 		handleServe(*servePort)
@@ -45,11 +47,11 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Println(`cookie-cli - Chrome Cookie 提取工具
+	fmt.Println(`cookie-cli - 浏览器 Cookie 提取工具
 
 用法:
-  cookie-cli get -domain <域名> [-name <Cookie 名称>]
-  cookie-cli list
+  cookie-cli get -domain <域名> [-name <Cookie 名称>] [-browser <浏览器>]
+  cookie-cli list [-browser <浏览器>]
   cookie-cli serve [-port <端口>]
 
 子命令:
@@ -57,16 +59,41 @@ func printHelp() {
   list    列出所有可用的域名
   serve   启动 HTTP 服务
 
+浏览器:
+  chrome    Google Chrome（默认）
+  firefox   Mozilla Firefox
+
 示例:
   cookie-cli get -domain example.com
   cookie-cli get -domain example.com -name sessionid
+  cookie-cli get -domain example.com -browser firefox
+  cookie-cli list -browser firefox
   cookie-cli serve -port 8080`)
 }
 
-func handleGet(domain, name string) {
-	store, err := cookie.NewChromeStore()
+// newStore 根据浏览器类型创建对应的 Store
+func newStore(browser string) (cookie.Store, error) {
+	if browser == "" {
+		browser = os.Getenv("COOKIE_BROWSER")
+	}
+	if browser == "" {
+		browser = "chrome"
+	}
+
+	switch browser {
+	case "chrome":
+		return cookie.NewChromeStore()
+	case "firefox":
+		return cookie.NewFirefoxStore()
+	default:
+		return nil, fmt.Errorf("不支持的浏览器: %s（支持: chrome, firefox）", browser)
+	}
+}
+
+func handleGet(domain, name, browser string) {
+	store, err := newStore(browser)
 	if err != nil {
-		log.Fatalf("创建 Chrome Store 失败: %v", err)
+		log.Fatalf("创建 Store 失败: %v", err)
 	}
 
 	cookies, err := store.GetCookies(domain)
@@ -90,10 +117,10 @@ func handleGet(domain, name string) {
 	}
 }
 
-func handleList() {
-	store, err := cookie.NewChromeStore()
+func handleList(browser string) {
+	store, err := newStore(browser)
 	if err != nil {
-		log.Fatalf("创建 Chrome Store 失败: %v", err)
+		log.Fatalf("创建 Store 失败: %v", err)
 	}
 
 	domains, err := store.ListDomains()

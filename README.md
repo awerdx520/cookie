@@ -1,185 +1,235 @@
-# Cookie 提取与 Restclient 集成工具
+# Cookie — 浏览器 Cookie 提取与 Restclient 集成工具
 
-一个从 Chrome 浏览器提取 Cookie 并与 Emacs restclient.el 集成的工具，方便本地开发时自动携带云端服务的认证 Token。
+从浏览器提取 Cookie 并与 Emacs restclient.el 集成，方便本地开发时自动携带云端服务的认证 Token。
 
 ## 功能特性
 
-- **跨平台支持**：Windows、macOS、Linux（包括 WSL2）
-- **多浏览器支持**：目前支持 Chrome，可扩展支持其他浏览器
-- **无缝集成**：与 Emacs restclient.el 深度集成
-- **命令行工具**：提供 `cookie-cli` 命令行工具，方便脚本调用
-- **缓存机制**：减少频繁读取数据库，提升性能
-- **错误处理**：完善的错误提示和降级机制
+- **Chrome 扩展桥接**：通过 Cookie Bridge 扩展直接获取明文 Cookie，无需解密，无需关闭浏览器
+- **多浏览器支持**：Chrome、Firefox、Edge
+- **跨平台**：Windows、Linux、WSL2
+- **Emacs 集成**：与 restclient.el 深度集成
+- **HTTP API**：提供本地 REST API，方便任意工具调用
 
-## 当前限制
+## 架构
 
-⚠️ **Cookie 加密问题**：Chrome 默认加密所有 Cookie 值，当前版本尚未实现解密功能。
-
-- 获取的加密 Cookie 值将显示为 `[ENCRYPTED_V20]`、`[ENCRYPTED_DPAPI]` 或 `[ENCRYPTED_AES]`
-- 需要实现对应平台的解密逻辑（Windows DPAPI、macOS Keychain、Linux 密钥环）
-- 解密功能计划在后续版本中实现
-
-**临时解决方案**：
-1. 使用 Chrome 扩展（如 "EditThisCookie"）导出 Cookie 为 JSON，然后使用其他工具解析
-2. 暂时使用未加密的 Cookie（不推荐，需修改 Chrome 配置）
-3. 贡献代码实现解密功能
-
-## 安装
-
-### 1. 安装 Go 工具
-
-```bash
-go install ./cmd/cookie-cli
+```
+                              Chrome 浏览器
+curl / Emacs / 脚本            ┌──────────────────┐
+       │                       │  Cookie Bridge    │
+       ▼                       │  扩展 (MV3)       │
+┌──────────────┐               │  chrome.cookies   │
+│ cookie-cli   │◄── WebSocket ─┤  API              │
+│ serve        │               └──────────────────┘
+│ 127.0.0.1    │
+│ :8008        │   Firefox / Edge (回退)
+└──────┬───────┘   直接读取 SQLite 数据库
+       │
+  HTTP JSON API
 ```
 
-或从源码编译：
+Chrome/Edge 推荐使用**扩展模式**（不受加密版本变化影响）；Firefox Cookie 为明文存储，直接读取数据库即可。
+
+## 快速开始
+
+### 1. 编译
 
 ```bash
-git clone <仓库地址>
-cd cookie
+make build
+# 或
 go build -o cookie-cli ./cmd/cookie-cli
-sudo mv cookie-cli /usr/local/bin/
 ```
 
-### 2. 配置 Emacs
+### 2. 启动 Bridge 服务
 
-将 `elisp/cookie.el` 添加到 Emacs 加载路径：
+```bash
+cookie-cli serve
+# 默认监听 127.0.0.1:8008（仅本地访问）
+```
+
+### 3. 安装 Chrome 扩展
+
+```bash
+# WSL2 用户: 复制扩展到 Windows 目录
+make ext-copy
+```
+
+然后在 Chrome 中加载扩展：
+
+1. 打开 `chrome://extensions/`
+2. 开启右上角 **开发者模式**
+3. 点击 **加载已解压的扩展程序**
+4. 选择 `C:\Users\<用户名>\cookie-bridge-extension` 目录
+
+扩展加载后会自动连接 Bridge 服务。
+
+### 4. 获取 Cookie
+
+```bash
+# CLI 方式（自动检测 Bridge 服务，不可用时回退到数据库读取）
+cookie-cli get -domain example.com
+cookie-cli get -domain example.com -name sessionid
+
+# HTTP API 方式
+curl 'http://127.0.0.1:8008/cookies?domain=example.com'
+curl 'http://127.0.0.1:8008/cookies?domain=example.com&name=sessionid'
+curl 'http://127.0.0.1:8008/domains'
+curl 'http://127.0.0.1:8008/health'
+```
+
+## 命令行参考
+
+```bash
+cookie-cli get -domain <域名> [-name <名称>] [-browser <浏览器>]
+cookie-cli list [-browser <浏览器>]
+cookie-cli serve [-port <端口>]
+```
+
+| 子命令 | 说明 |
+|--------|------|
+| `get` | 获取指定域名的 Cookie |
+| `list` | 列出所有包含 Cookie 的域名 |
+| `serve` | 启动 Cookie Bridge 服务 |
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `-domain` | — | 目标域名 |
+| `-name` | — | Cookie 名称（省略则返回该域名所有 Cookie） |
+| `-browser` | `chrome` | 浏览器类型：`chrome`、`firefox`、`edge` |
+| `-port` | `8008` | Bridge 服务监听端口 |
+
+### 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `COOKIE_BROWSER` | 默认浏览器类型 |
+| `COOKIE_PORT` | Bridge 服务端口（CLI 连接时使用） |
+
+## HTTP API
+
+Bridge 服务仅监听 `127.0.0.1`，外部无法访问。
+
+### GET /cookies
+
+获取指定域名的 Cookie。
+
+```
+GET /cookies?domain=example.com
+GET /cookies?domain=example.com&name=sessionid
+```
+
+响应：
+
+```json
+{
+  "ok": true,
+  "cookies": [
+    {
+      "name": "sessionid",
+      "value": "abc123",
+      "domain": ".example.com",
+      "path": "/",
+      "secure": true,
+      "httpOnly": true,
+      "expirationDate": 1800000000,
+      "sameSite": "lax"
+    }
+  ]
+}
+```
+
+### GET /domains
+
+列出所有域名。
+
+```json
+{ "ok": true, "domains": ["example.com", "github.com"] }
+```
+
+### GET /health
+
+健康检查。
+
+```json
+{ "service": "cookie-bridge", "extension": true }
+```
+
+## Emacs 集成
+
+### 配置
 
 ```elisp
 (add-to-list 'load-path "/path/to/cookie/elisp")
 (require 'cookie)
+(cookie-setup-restclient)
+
+;; 可选配置
+(setq cookie-default-browser "chrome")  ; "chrome", "firefox", "edge"
+(setq cookie-cache-expire 300)          ; 缓存过期秒数
 ```
 
-或使用 `use-package`：
-
-```elisp
-(use-package cookie
-  :load-path "/path/to/cookie/elisp"
-  :config
-  (cookie-setup-restclient))
-```
-
-## 使用说明
-
-### 命令行工具
-
-```bash
-# 获取指定域名的所有 Cookie
-cookie-cli get -domain example.com
-
-# 获取特定 Cookie 值
-cookie-cli get -domain example.com -name sessionid
-
-# 列出所有包含 Cookie 的域名
-cookie-cli list
-
-# 启动 HTTP 服务（默认端口 8080）
-cookie-cli serve -port 8080
-```
-
-### Restclient 集成
-
-在 restclient 文件中使用以下语法：
+### Restclient 使用
 
 ```restclient
-# 基本用法
-:token = {{cookie:api.example.com auth_token}}
+:token = {{(cookie-get "api.example.com" "auth_token")}}
 
 GET https://api.example.com/user
 Authorization: Bearer :token
-
-# 直接使用语法糖
-GET https://api.example.com/data
-Authorization: Bearer {{cookie:api.example.com auth_token}}
 ```
 
-### 高级配置
+### 交互命令
 
-#### 环境变量
+| 命令 | 说明 |
+|------|------|
+| `M-x cookie-get-interactive` | 交互式获取 Cookie 值并复制到剪贴板 |
+| `M-x cookie-clear-cache` | 清除 Cookie 缓存 |
+| `M-x cookie-auto-mode` | 自动注入 Cookie 的 minor mode |
+
+## Cookie 获取策略
+
+| 浏览器 | Bridge 服务可用 | Bridge 不可用 |
+|--------|----------------|---------------|
+| Chrome | 通过扩展获取明文 Cookie | 读取数据库（需关闭浏览器，受加密限制） |
+| Edge | 通过扩展获取明文 Cookie | 读取数据库（需关闭浏览器，受加密限制） |
+| Firefox | — | 直接读取数据库（明文存储，无需解密） |
+
+## WSL2 说明
+
+工具自动检测 WSL2 环境并访问 Windows 浏览器数据。
+
+**浏览器数据路径：**
+- Chrome: `/mnt/c/Users/<用户名>/AppData/Local/Google/Chrome/User Data/`
+- Firefox: `/mnt/c/Users/<用户名>/AppData/Roaming/Mozilla/Firefox/Profiles/`
+- Edge: `/mnt/c/Users/<用户名>/AppData/Local/Microsoft/Edge/User Data/`
+
+## Makefile 目标
 
 ```bash
-# 指定 Chrome 用户配置目录
-export COOKIE_CHROME_PROFILE="Profile 1"
-
-# 指定浏览器类型（未来支持）
-export COOKIE_BROWSER="chrome"
-```
-
-#### Emacs 配置
-
-```elisp
-;; 自定义 cookie-cli 路径
-(setq cookie-cli-path "/usr/local/bin/cookie-cli")
-
-;; 设置缓存过期时间（秒）
-(setq cookie-cache-expire 600)
-
-;; 启用自动模式
-(cookie-auto-mode 1)
-
-;; 手动更新所有 Cookie 变量
-M-x cookie-update-restclient-vars
-
-;; 交互式获取 Cookie 值
-M-x cookie-get-interactive
-```
-
-## WSL2 特别说明
-
-在 WSL2 环境中，工具会自动检测并访问 Windows 系统中的 Chrome Cookie 文件。
-
-**前提条件**：
-1. Windows Chrome 至少运行过一次（生成 Cookie 文件）
-2. WSL2 可以访问 `/mnt/c/` 挂载点
-
-**手动指定路径**（如果需要）：
-```bash
-export COOKIE_CHROME_PATH="/mnt/c/Users/<用户名>/AppData/Local/Google/Chrome/User Data/Default/Cookies"
+make build       # 编译
+make serve       # 编译并启动 Bridge 服务
+make ext-copy    # 复制扩展到 Windows 用户目录
+make install     # 安装到 GOPATH/bin
+make fmt         # 格式化代码
+make vet         # 静态检查
+make test        # 运行测试
+make clean       # 清理构建产物
+make help        # 显示帮助
 ```
 
 ## 故障排除
 
-### 1. "未找到 Chrome Cookie 文件" 错误
+### Bridge 服务显示 `extension: false`
 
-- 确保 Chrome 已安装并至少运行过一次
-- 检查路径权限，确保可以读取 Cookie 文件
-- 在 WSL2 中，确保可以访问 Windows 文件系统
+- 确认 Chrome 已启动且扩展已加载
+- 在 Chrome 扩展页面检查 Service Worker 是否有错误
+- 确认端口一致（默认 8008）
 
-### 2. Cookie 值为 "[ENCRYPTED]"
+### Firefox 找不到 Profile
 
-Chrome 会加密存储敏感 Cookie 值。当前版本尚未实现自动解密，需要根据平台手动处理：
+工具自动查找 `.default-release`（Firefox 67+）或 `.default` profile。多个 profile 时默认选择第一个匹配的。
 
-- **Windows**：需要处理 DPAPI 加密
-- **macOS**：需要访问 Keychain
-- **Linux**：需要访问 GNOME Keyring 或 KWallet
+### WSL2 下 "permission denied"
 
-**临时解决方案**：使用 Chrome 扩展导出 Cookie，或暂时使用未加密的 Cookie。
-
-### 3. Emacs 集成不工作
-
-- 检查 `cookie-cli` 是否在 PATH 中
-- 检查 `cookie.el` 是否正确加载
-- 查看 `*Messages*` 缓冲区获取错误信息
-
-## 开发计划
-
-- [x] 基础 Cookie 读取功能
-- [x] 命令行工具
-- [x] Emacs restclient 集成
-- [ ] Cookie 值解密（各平台）
-- [ ] 多浏览器支持（Firefox, Edge, Safari）
-- [ ] HTTP 服务模式
-- [ ] 图形化配置界面
-
-## 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 仓库
-2. 创建功能分支
-3. 提交更改
-4. 推送到分支
-5. 创建 Pull Request
+浏览器运行时会锁定 Cookie 文件。Chrome/Edge 建议使用 Bridge 扩展模式；Firefox 可尝试以只读模式打开。
 
 ## 许可证
 

@@ -1,17 +1,17 @@
 ;;; cookie.el --- 从浏览器提取 Cookie 并与 restclient.el 集成
 
 ;; Author:
-;; Version: 0.2.0
-;; Keywords: restclient, chrome, firefox, cookie, authentication
+;; Version: 0.3.0
+;; Keywords: restclient, chrome, firefox, edge, cookie, authentication
 ;; URL: https://github.com/thomas/cookie
 
 ;;; Commentary:
-;; 该包提供了从浏览器（Chrome、Firefox）提取 Cookie 的功能，并与 restclient.el 集成，
+;; 该包提供了从浏览器（Chrome、Firefox、Edge）提取 Cookie 的功能，并与 restclient.el 集成，
 ;; 方便在本地开发时自动携带云端服务的认证 Token。
 
 ;; 主要功能：
 ;; 1. 通过 cookie-cli 工具获取浏览器中的 Cookie 值
-;; 2. 支持 Chrome 和 Firefox
+;; 2. 支持 Chrome、Firefox 和 Edge
 ;; 3. 为 restclient.el 提供便捷的变量定义语法
 ;; 4. 支持缓存和错误处理
 
@@ -29,8 +29,8 @@
 
 (defcustom cookie-default-browser "chrome"
   "默认使用的浏览器类型。
-可选值: \"chrome\", \"firefox\"。"
-  :type '(choice (const "chrome") (const "firefox"))
+可选值: \"chrome\", \"firefox\", \"edge\"。"
+  :type '(choice (const "chrome") (const "firefox") (const "edge"))
   :group 'cookie)
 
 (defcustom cookie-cache-expire 300
@@ -129,7 +129,7 @@ BROWSER 为浏览器类型（chrome 或 firefox），默认使用 `cookie-defaul
   (interactive
    (list (read-string "域名: ")
          (read-string "Cookie 名称: ")
-         (completing-read "浏览器 (默认 chrome): " '("chrome" "firefox") nil nil nil nil cookie-default-browser)))
+         (completing-read "浏览器 (默认 chrome): " '("chrome" "firefox" "edge") nil nil nil nil cookie-default-browser)))
   (let ((value (cookie-get domain name browser)))
     (if (string-empty-p value)
         (message "未找到 Cookie: %s@%s [%s]" name domain browser)
@@ -139,7 +139,7 @@ BROWSER 为浏览器类型（chrome 或 firefox），默认使用 `cookie-defaul
 
 ;; 提供 minor mode
 (define-minor-mode cookie-auto-mode
-  "自动从 Chrome 获取 Cookie 的 minor mode。
+  "自动从浏览器获取 Cookie 的 minor mode。
 
 启用后，会在 restclient 请求中自动注入 Cookie 值。"
   :global nil

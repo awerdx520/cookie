@@ -3,7 +3,7 @@
 
 # 浏览器配置
 browser:
-  # 浏览器类型: chrome, firefox, edge, safari
+  # 浏览器类型: chrome, firefox, edge
   type: chrome
 
   # Chrome 特定配置
@@ -22,6 +22,26 @@ browser:
 
       # Windows Chrome 数据目录（自动检测失败时手动指定）
       windows_data_path: "/mnt/c/Users/thomas/AppData/Local/Google/Chrome/User Data"
+
+  # Firefox 特定配置
+  firefox:
+    # Firefox profile 名称（默认自动选择 .default-release）
+    # 留空则自动查找
+    profile: ""
+
+    # WSL2 特殊配置
+    wsl2:
+      auto_detect: true
+      windows_user: "thomas"
+
+  # Edge 特定配置（基于 Chromium，配置结构与 Chrome 类似）
+  edge:
+    profile: "Default"
+
+    wsl2:
+      auto_detect: true
+      windows_user: "thomas"
+      windows_data_path: "/mnt/c/Users/thomas/AppData/Local/Microsoft/Edge/User Data"
 
 # 域名映射配置
 # 将逻辑域名映射到实际 Cookie 域名
@@ -54,9 +74,9 @@ environments:
 
 # HTTP 服务配置（当使用 cookie-cli serve 时）
 http:
-  # 监听地址
+  # 监听地址（仅本地访问）
   host: "127.0.0.1"
-  port: 8080
+  port: 8008
 
   # 认证（可选）
   auth:

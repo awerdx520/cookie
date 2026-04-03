@@ -2,14 +2,16 @@
 
 ## 项目概述
 
-开发一个工具，用于从 Chrome 浏览器中提取指定域名的 Cookie 信息，并与 Emacs 的 restclient.el 插件集成，实现本地开发时自动携带云端服务的认证 Token。
+开发一个工具，用于从浏览器（Chrome、Firefox、Edge）中提取指定域名的 Cookie 信息，并与 Emacs 的 restclient.el 插件集成，实现本地开发时自动携带云端服务的认证 Token。
 
 ## 核心需求
 
 1. **Cookie 提取功能**：
-   - 支持从 Chrome 浏览器（包括 Windows、Linux、macOS）读取 Cookie
-   - 特别支持 WSL2 环境下读取 Windows 系统中 Chrome 的 Cookie
+   - 支持从 Chrome、Firefox、Edge 浏览器（Windows、Linux）读取 Cookie
+   - 特别支持 WSL2 环境下读取 Windows 系统中浏览器的 Cookie
    - 能够按域名过滤和提取特定的 Cookie（如认证 Token）
+   - Firefox Cookie 为明文存储，无需解密，开箱即用
+   - Edge 基于 Chromium，复用 Chrome 的解密逻辑
 
 2. **Restclient 集成**：
    - 在 restclient.el 发起的 HTTP 请求中自动注入 Cookie 值
@@ -35,37 +37,51 @@
 ### 架构设计
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Chrome        │    │   cookie-cli    │    │   Emacs         │
-│   Cookie 数据库  │───▶│   (Go 工具)     │───▶│   restclient.el │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                        │                        │
-         │ 读取 SQLite            │ 命令行输出            │ 变量注入
-         ▼                        ▼                        ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  平台适配层      │    │  格式化输出      │    │  HTTP 请求      │
-│  - Windows路径   │    │  - 纯文本       │    │  携带 Cookie    │
-│  - Linux路径     │    │  - JSON         │    │                 │
-│  - macOS路径     │    │  - 环境变量      │    │                 │
-│  - WSL2 特殊处理 │    └─────────────────┘    └─────────────────┘
-└─────────────────┘
+                              Chrome 浏览器
+curl / Emacs / 脚本            ┌──────────────────┐
+       │                       │  Cookie Bridge    │
+       ▼                       │  扩展 (MV3)       │
+┌──────────────┐               │  chrome.cookies   │
+│ cookie-cli   │◄── WebSocket ─┤  API              │
+│ serve        │               └──────────────────┘
+│ 127.0.0.1    │
+│ :8008        │   Firefox / Edge (回退)
+└──────┬───────┘   直接读取 SQLite 数据库
+       │
+       ├──▶ CLI 输出 (cookie-cli get/list)
+       ├──▶ HTTP JSON API (curl/脚本)
+       └──▶ Emacs restclient.el 集成
 ```
+
+Chrome/Edge 推荐使用扩展模式（通过 WebSocket 桥接，直接获取明文 Cookie，不受加密版本影响）；
+Firefox Cookie 为明文存储，直接读取数据库即可。
 
 ### 模块划分
 
 #### 1. cookie-cli (Go 程序)
 
 **功能**：
-- `cookie-cli get <domain>`：获取指定域名的所有 Cookie
-- `cookie-cli get <domain> <name>`：获取特定名称的 Cookie 值
+- `cookie-cli get -domain <domain>`：获取指定域名的所有 Cookie
+- `cookie-cli get -domain <domain> -name <name>`：获取特定名称的 Cookie 值
 - `cookie-cli list`：列出所有可用的域名
-- `cookie-cli serve`：启动 HTTP 服务，提供 REST API
+- `cookie-cli serve`：启动 Cookie Bridge HTTP + WebSocket 服务
 
 **实现要点**：
-- **平台检测**：自动识别操作系统和 Chrome 数据目录
-- **WSL2 支持**：检测 WSL2 环境，使用 `/mnt/c/` 路径访问 Windows Chrome 数据
-- **SQLite 操作**：使用 `github.com/mattn/go-sqlite3` 读取 Chrome 的 `Cookies` 数据库文件
-- **加密处理**：Chrome 的 Cookie 值可能加密（Windows 使用 DPAPI，macOS 使用 Keychain，Linux 使用 GNOME Keyring 或 KWallet）。初始版本可先支持未加密的 Cookie，或依赖系统工具解密。
+- **Chrome 扩展桥接**（推荐）：`serve` 启动本地 HTTP + WebSocket 服务，Chrome 扩展通过 WebSocket 连接，`get`/`list` 命令自动检测 Bridge 服务并优先使用，直接获取明文 Cookie，不需要解密，不需要关闭浏览器
+- **数据库直读**（回退）：Bridge 不可用时回退到读取 SQLite 数据库，受浏览器文件锁和加密限制
+- **平台检测**：自动识别操作系统和浏览器数据目录
+- **WSL2 支持**：检测 WSL2 环境，使用 `/mnt/c/` 路径访问 Windows 浏览器数据
+
+#### 1.5 Cookie Bridge 扩展 (Chrome MV3)
+
+**功能**：
+- 通过 `chrome.cookies.getAll()` API 获取明文 Cookie
+- 通过 Offscreen Document 维持 WebSocket 长连接到本地 Bridge 服务
+- 自动重连机制
+
+**实现要点**：
+- MV3 Service Worker 不支持 WebSocket，通过 `chrome.offscreen` API 创建 Offscreen Document 持有连接
+- Offscreen Document 收到请求后通过 `chrome.runtime.sendMessage` 转发给 Service Worker 处理 `chrome.cookies` API 调用
 
 #### 2. cookie-el (Emacs Lisp 包)
 
@@ -87,28 +103,29 @@
 
 ## 开发计划
 
-### 第一阶段：核心功能（1-2 周）
+### 第一阶段：核心功能 ✅
 1. 实现 `cookie-cli` 基础框架和命令行解析
-2. 实现 Chrome Cookie 文件定位（各平台）
+2. 实现 Chrome/Firefox/Edge Cookie 文件定位（各平台）
 3. 实现 SQLite 查询基础功能
-4. 测试基本 Cookie 读取功能
 
-### 第二阶段：平台适配与解密（1-2 周）
-1. 实现 Windows DPAPI 解密（使用 `go-dpapi` 或调用系统命令）
-2. 实现 macOS Keychain 集成
-3. 实现 Linux 密钥环集成
-4. 完善 WSL2 支持
+### 第二阶段：平台适配与解密 ✅
+1. 实现 Windows DPAPI 解密（v10/v11）
+2. 完善 WSL2 支持（Windows copy 命令绕过文件锁）
+3. v20 解密支持（flag 0x01/0x02，flag 0x03 受 CNG/KSP 限制）
 
-### 第三阶段：Emacs 集成（1 周）
+### 第三阶段：Emacs 集成 ✅
 1. 编写 `cookie.el` 基础函数
 2. 实现 restclient.el 集成语法
-3. 编写使用文档和示例
 
-### 第四阶段：高级功能（可选）
-1. HTTP 服务模式，支持多客户端同时使用
-2. 多浏览器支持（Firefox, Edge, Safari）
-3. Cookie 监控和自动刷新
-4. 图形化配置工具
+### 第四阶段：Chrome 扩展桥接 ✅（2026-04-03）
+1. Chrome MV3 扩展 + Offscreen WebSocket 客户端
+2. Go HTTP + WebSocket Bridge 服务 (`internal/bridge`)
+3. CLI 自动检测 Bridge 服务，优先使用扩展获取明文 Cookie
+4. 彻底绕过 Chrome v20 加密和浏览器文件锁问题
+
+### 后续（可选）
+1. Cookie 监控和自动刷新
+2. 图形化配置工具
 
 ## 集成示例
 
@@ -148,20 +165,20 @@ $ cookie-cli serve
 ## 技术栈
 
 - **Go 1.26+**：核心逻辑实现
-- **SQLite3**：Chrome Cookie 数据库操作
+- **SQLite3**：浏览器 Cookie 数据库操作
 - **Emacs Lisp**：集成层实现
 - **Restclient.el**：HTTP 客户端
 
 ## 风险与挑战
 
-1. **Cookie 加密**：不同平台加密方式不同，需要处理系统级密钥存储
-2. **Chrome 文件锁**：Chrome 运行时 Cookie 文件被锁定，可能需要复制或只读打开
+1. **Cookie 加密**：~~Chrome/Edge 不同平台加密方式不同~~ → 已通过 Chrome 扩展桥接方案彻底解决
+2. **浏览器文件锁**：~~浏览器运行时 Cookie 文件被锁定~~ → 扩展模式无需读取文件；回退模式下 WSL2 使用 Windows copy 命令
 3. **WSL2 文件权限**：访问 Windows 文件系统可能需要特殊权限处理
-4. **多用户环境**：需要正确处理多 Chrome 用户配置
+4. **MV3 Service Worker 限制**：Service Worker 不支持 WebSocket，通过 Offscreen Document 解决
 
 ## 扩展性考虑
 
-1. **插件架构**：支持其他浏览器（Firefox, Edge, Safari）
+1. **插件架构**：已支持 Chrome、Firefox 和 Edge（Edge 复用 Chromium 架构）
 2. **输出格式**：支持 JSON、YAML、环境变量等多种输出格式
 3. **缓存机制**：避免频繁读取数据库，提高性能
 4. **监控模式**：监听 Cookie 变化，自动更新

@@ -82,12 +82,10 @@ func findFirefoxProfileDir() (string, error) {
 	switch runtime.GOOS {
 	case "windows":
 		profilesRoot = filepath.Join(os.Getenv("APPDATA"), "Mozilla", "Firefox", "Profiles")
-	case "darwin":
-		profilesRoot = filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Firefox", "Profiles")
 	case "linux":
 		profilesRoot = filepath.Join(os.Getenv("HOME"), ".mozilla", "firefox")
 	default:
-		return "", fmt.Errorf("不支持的操作系统: %s", runtime.GOOS)
+		return "", fmt.Errorf("不支持的操作系统: %s（仅支持 Windows 和 Linux）", runtime.GOOS)
 	}
 
 	return findDefaultProfile(profilesRoot)
@@ -186,22 +184,6 @@ func (s *FirefoxStore) GetCookies(domain string) ([]Cookie, error) {
 	}
 
 	return cookies, nil
-}
-
-// GetCookie 获取特定 Cookie
-func (s *FirefoxStore) GetCookie(domain, name string) (*Cookie, error) {
-	cookies, err := s.GetCookies(domain)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, c := range cookies {
-		if c.Name == name {
-			return &c, nil
-		}
-	}
-
-	return nil, fmt.Errorf("未找到 Cookie: %s@%s", name, domain)
 }
 
 // ListDomains 列出所有域名

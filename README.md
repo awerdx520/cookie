@@ -5,6 +5,7 @@
 ## 功能特性
 
 - **Chrome 扩展桥接**：通过 Cookie Bridge 扩展直接获取明文 Cookie，无需解密，无需关闭浏览器
+- **多种通信模式**：Serve（HTTP+WebSocket）、Native Messaging（无需常驻进程）、文件导出
 - **多浏览器支持**：Chrome、Firefox、Edge
 - **跨平台**：Windows、Linux、WSL2
 - **Emacs 集成**：与 restclient.el 深度集成
@@ -13,21 +14,24 @@
 ## 架构
 
 ```
-                              Chrome 浏览器
-curl / Emacs / 脚本            ┌──────────────────┐
-       │                       │  Cookie Bridge    │
-       ▼                       │  扩展 (MV3)       │
-┌──────────────┐               │  chrome.cookies   │
-│ cookie-cli   │◄── WebSocket ─┤  API              │
-│ serve        │               └──────────────────┘
-│ 127.0.0.1    │
-│ :8008        │   Firefox / Edge (回退)
-└──────┬───────┘   直接读取 SQLite 数据库
+                                Chrome 浏览器
+                                ┌──────────────────┐
+curl / Emacs / 脚本              │  Cookie Bridge    │
+       │                         │  扩展 (MV3)       │
+       ▼                         │  chrome.cookies   │
+┌──────────────┐                 │  API              │
+│ cookie-cli   │ ←── WebSocket ──┤                   │
+│              │ ←── Native Msg ─┤                   │
+│              │                 └──────────────────┘
+└──────┬───────┘
        │
-  HTTP JSON API
+       ├──▶ 模式 1: Serve（HTTP + WebSocket，需启动常驻服务）
+       ├──▶ 模式 2: Native Messaging（扩展自动启动，无需 serve）
+       ├──▶ 模式 3: 文件导出（读取 ~/.cookie/export.json）
+       └──▶ 模式 4: SQLite 直读（回退，需关闭浏览器）
 ```
 
-Chrome/Edge 推荐使用**扩展模式**（不受加密版本变化影响）；Firefox Cookie 为明文存储，直接读取数据库即可。
+CLI 自动按优先级尝试所有模式，优先使用最便捷的方式获取 Cookie。
 
 ## 快速开始
 
@@ -39,14 +43,7 @@ make build
 go build -o cookie-cli ./cmd/cookie-cli
 ```
 
-### 2. 启动 Bridge 服务
-
-```bash
-cookie-cli serve
-# 默认监听 127.0.0.1:8008（仅本地访问）
-```
-
-### 3. 安装 Chrome 扩展
+### 2. 安装 Chrome 扩展
 
 ```bash
 # WSL2 用户: 复制扩展到 Windows 目录
@@ -60,16 +57,41 @@ make ext-copy
 3. 点击 **加载已解压的扩展程序**
 4. 选择 `C:\Users\<用户名>\cookie-bridge-extension` 目录
 
-扩展加载后会自动连接 Bridge 服务。
+### 3. 选择通信模式
+
+**方式 A：Native Messaging（推荐，无需常驻进程）**
+
+```bash
+make native-install
+# 按提示将扩展 ID 填入 manifest 文件
+# 然后重新加载 Chrome 扩展
+```
+
+安装后，扩展会自动启动 native-messaging-host，`cookie-cli get` 直接可用。
+
+**方式 B：Serve 模式（需启动常驻服务）**
+
+```bash
+cookie-cli serve
+# 默认监听 127.0.0.1:8008
+```
+
+**方式 C：文件导出（离线使用）**
+
+```bash
+# 通过 Native Messaging 导出 Cookie 到本地文件
+cookie-cli export -domain example.com
+```
 
 ### 4. 获取 Cookie
 
 ```bash
-# CLI 方式（自动检测 Bridge 服务，不可用时回退到数据库读取）
+# CLI 方式（自动按优先级选择通信模式）
 cookie-cli get -domain example.com
 cookie-cli get -domain example.com -name sessionid
+cookie-cli get -domain example.com -format header
 
-# HTTP API 方式
+# HTTP API 方式（仅 serve 模式）
 curl 'http://127.0.0.1:8008/cookies?domain=example.com'
 curl 'http://127.0.0.1:8008/cookies?domain=example.com&name=sessionid'
 curl 'http://127.0.0.1:8008/domains'
@@ -82,13 +104,17 @@ curl 'http://127.0.0.1:8008/health'
 cookie-cli get -domain <域名> [-name <名称>] [-browser <浏览器>] [-format <格式>]
 cookie-cli list [-browser <浏览器>]
 cookie-cli serve [-port <端口>]
+cookie-cli export [-domain <域名>]
+cookie-cli native-messaging-host
 ```
 
 | 子命令 | 说明 |
 |--------|------|
 | `get` | 获取指定域名的 Cookie |
 | `list` | 列出所有包含 Cookie 的域名 |
-| `serve` | 启动 Cookie Bridge 服务 |
+| `serve` | 启动 Cookie Bridge HTTP + WebSocket 服务 |
+| `export` | 通过 Native Messaging 导出 Cookie 到本地文件 |
+| `native-messaging-host` | 作为 Chrome Native Messaging Host 运行（由扩展自动启动） |
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
@@ -255,11 +281,16 @@ Cookie: session=:session
 
 ## Cookie 获取策略
 
-| 浏览器 | Bridge 服务可用 | Bridge 不可用 |
-|--------|----------------|---------------|
-| Chrome | 通过扩展获取明文 Cookie | 读取数据库（需关闭浏览器，受加密限制） |
-| Edge | 通过扩展获取明文 Cookie | 读取数据库（需关闭浏览器，受加密限制） |
-| Firefox | — | 直接读取数据库（明文存储，无需解密） |
+Chrome/Edge 的获取优先级（自动选择）：
+
+| 优先级 | 方式 | 条件 | 说明 |
+|--------|------|------|------|
+| 1 | Native Messaging | 已执行 `make native-install` | 扩展自动启动 host 进程，无需 serve |
+| 2 | Bridge HTTP | `cookie-cli serve` 运行中 | 通过 WebSocket 桥接获取明文 Cookie |
+| 3 | 文件导出 | `~/.cookie/export.json` 存在且未过期 | 读取之前导出的 Cookie |
+| 4 | SQLite 直读 | 回退 | 需关闭浏览器，受加密限制 |
+
+Firefox 直接读取 SQLite 数据库（明文存储，无需解密）。
 
 ## WSL2 说明
 
@@ -273,15 +304,17 @@ Cookie: session=:session
 ## Makefile 目标
 
 ```bash
-make build       # 编译
-make serve       # 编译并启动 Bridge 服务
-make ext-copy    # 复制扩展到 Windows 用户目录
-make install     # 安装到 GOPATH/bin
-make fmt         # 格式化代码
-make vet         # 静态检查
-make test        # 运行测试
-make clean       # 清理构建产物
-make help        # 显示帮助
+make build             # 编译
+make serve             # 编译并启动 Bridge 服务
+make ext-copy          # 复制扩展到 Windows 用户目录
+make native-install    # 注册 Native Messaging Host
+make native-uninstall  # 移除 Native Messaging Host 注册
+make install           # 安装到 GOPATH/bin
+make fmt               # 格式化代码
+make vet               # 静态检查
+make test              # 运行测试
+make clean             # 清理构建产物
+make help              # 显示帮助
 ```
 
 ## 故障排除
@@ -292,13 +325,20 @@ make help        # 显示帮助
 - 在 Chrome 扩展页面检查 Service Worker 是否有错误
 - 确认端口一致（默认 8008）
 
+### Native Messaging 不工作
+
+- 确认已运行 `make native-install`
+- 确认 manifest 中的 `allowed_origins` 包含正确的扩展 ID
+- 在 Chrome 扩展页面查看 Service Worker 日志中是否有 "Native Messaging" 相关错误
+- WSL2 用户确认 `wsl.exe` 可以正常调用 `cookie-cli`
+
 ### Firefox 找不到 Profile
 
 工具自动查找 `.default-release`（Firefox 67+）或 `.default` profile。多个 profile 时默认选择第一个匹配的。
 
 ### WSL2 下 "permission denied"
 
-浏览器运行时会锁定 Cookie 文件。Chrome/Edge 建议使用 Bridge 扩展模式；Firefox 可尝试以只读模式打开。
+浏览器运行时会锁定 Cookie 文件。Chrome/Edge 建议使用扩展模式（Serve 或 Native Messaging）；Firefox 可尝试以只读模式打开。
 
 ## 许可证
 

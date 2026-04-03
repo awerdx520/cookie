@@ -30,31 +30,14 @@ func NewEdgeStore() (*EdgeStore, error) {
 // findEdgeCookiePath 查找 Edge Cookie 文件路径
 func findEdgeCookiePath() (string, error) {
 	if runtime.GOOS == "linux" && isWSL2() {
-		user, err := getWSL2WindowsUsername()
-		if err != nil {
-			log.Printf("警告: 无法获取 Windows 用户名: %v", err)
-		} else {
-			if path, err := findEdgeInWindowsUser(user); err == nil {
+		home, err := getWSL2WindowsHome()
+		if err == nil {
+			basePath := filepath.Join(home, "AppData", "Local", "Microsoft", "Edge", "User Data")
+			if path, err := findCookieInProfiles(basePath, "Edge"); err == nil {
 				return path, nil
 			}
-		}
-
-		// 扫描所有 Windows 用户
-		usersDir := "/mnt/c/Users"
-		if files, err := os.ReadDir(usersDir); err == nil {
-			for _, file := range files {
-				if !file.IsDir() {
-					continue
-				}
-				name := file.Name()
-				if isSystemUser(name) {
-					continue
-				}
-				if path, err := findEdgeInWindowsUser(name); err == nil {
-					log.Printf("找到 Edge Cookie 文件（用户 %s）", name)
-					return path, nil
-				}
-			}
+		} else {
+			log.Printf("警告: 无法获取 Windows 家目录: %v", err)
 		}
 	}
 
@@ -68,11 +51,6 @@ func findEdgeCookiePath() (string, error) {
 		return "", fmt.Errorf("Edge 不支持的操作系统: %s", runtime.GOOS)
 	}
 
-	return findCookieInProfiles(basePath, "Edge")
-}
-
-func findEdgeInWindowsUser(user string) (string, error) {
-	basePath := fmt.Sprintf("/mnt/c/Users/%s/AppData/Local/Microsoft/Edge/User Data", user)
 	return findCookieInProfiles(basePath, "Edge")
 }
 

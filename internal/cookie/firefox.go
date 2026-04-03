@@ -47,35 +47,14 @@ func findFirefoxProfileDir() (string, error) {
 	var profilesRoot string
 
 	if runtime.GOOS == "linux" && isWSL2() {
-		// WSL2: 尝试找 Windows 上的 Firefox profile
-		user, err := getWSL2WindowsUsername()
-		if err != nil {
-			log.Printf("警告: 无法获取 Windows 用户名: %v", err)
-		} else {
-			winProfilesRoot := fmt.Sprintf("/mnt/c/Users/%s/AppData/Roaming/Mozilla/Firefox/Profiles", user)
+		home, err := getWSL2WindowsHome()
+		if err == nil {
+			winProfilesRoot := filepath.Join(home, "AppData", "Roaming", "Mozilla", "Firefox", "Profiles")
 			if dir, err := findDefaultProfile(winProfilesRoot); err == nil {
 				return dir, nil
 			}
-		}
-
-		// 扫描所有 Windows 用户
-		usersDir := "/mnt/c/Users"
-		if files, err := os.ReadDir(usersDir); err == nil {
-			for _, file := range files {
-				if !file.IsDir() {
-					continue
-				}
-				name := file.Name()
-				if name == "Default" || name == "Public" || name == "All Users" ||
-					name == "Default User" || strings.HasSuffix(name, ".bak") {
-					continue
-				}
-				winProfilesRoot := filepath.Join(usersDir, name, "AppData", "Roaming", "Mozilla", "Firefox", "Profiles")
-				if dir, err := findDefaultProfile(winProfilesRoot); err == nil {
-					log.Printf("找到 Firefox 配置目录（Windows 用户 %s）", name)
-					return dir, nil
-				}
-			}
+		} else {
+			log.Printf("警告: 无法获取 Windows 家目录: %v", err)
 		}
 	}
 

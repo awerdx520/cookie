@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Cookie Bridge",
-  "version": "1.0.0",
-  "description": "通过 WebSocket 为本地工具提供 Cookie 访问能力",
+  "version": "1.1.0",
+  "description": "通过 WebSocket 或 Native Messaging 为本地工具提供 Cookie 访问能力",
   "permissions": [
     "cookies",
-    "offscreen"
+    "offscreen",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "<all_urls>"

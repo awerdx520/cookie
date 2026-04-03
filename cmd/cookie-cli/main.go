@@ -12,6 +12,7 @@ import (
 
 	"cookie/internal/bridge"
 	"cookie/internal/cookie"
+	"cookie/internal/native"
 )
 
 func main() {
@@ -26,6 +27,9 @@ func main() {
 
 	serveCmd := flag.NewFlagSet("serve", flag.ExitOnError)
 	servePort := serveCmd.String("port", "8008", "HTTP 服务端口")
+
+	exportCmd := flag.NewFlagSet("export", flag.ExitOnError)
+	exportDomain := exportCmd.String("domain", "", "要导出的域名（留空导出全部）")
 
 	if len(os.Args) < 2 {
 		printHelp()
@@ -46,6 +50,11 @@ func main() {
 	case "serve":
 		serveCmd.Parse(os.Args[2:])
 		handleServe(*servePort)
+	case "native-messaging-host":
+		handleNativeMessagingHost()
+	case "export":
+		exportCmd.Parse(os.Args[2:])
+		handleExport(*exportDomain)
 	default:
 		printHelp()
 		os.Exit(1)
@@ -59,14 +68,18 @@ func printHelp() {
   cookie-cli get -domain <域名> [-name <名称>] [-browser <浏览器>] [-format <格式>]
   cookie-cli list [-browser <浏览器>]
   cookie-cli serve [-port <端口>]
+  cookie-cli export [-domain <域名>]
+  cookie-cli native-messaging-host
 
 子命令:
-  get     获取指定域名的 Cookie
-  list    列出所有可用的域名
-  serve   启动 Cookie Bridge 服务（配合 Chrome 扩展使用）
+  get                     获取指定域名的 Cookie
+  list                    列出所有可用的域名
+  serve                   启动 Cookie Bridge HTTP + WebSocket 服务
+  export                  通过 Native Messaging 导出 Cookie 到本地文件
+  native-messaging-host   作为 Chrome Native Messaging Host 运行（由扩展自动启动）
 
 浏览器:
-  chrome    Google Chrome（默认，推荐配合 serve + 扩展使用）
+  chrome    Google Chrome（默认）
   firefox   Mozilla Firefox
   edge      Microsoft Edge
 
@@ -75,19 +88,21 @@ func printHelp() {
   header    Cookie 头格式: name1=val1; name2=val2
   json      JSON 数组格式
 
-Chrome/Edge Cookie 获取方式:
-  1. 推荐: 先运行 cookie-cli serve，安装 Cookie Bridge 扩展，
-     然后 get/list 命令会自动通过扩展获取明文 Cookie（无需关闭浏览器）
-  2. 回退: 若 Bridge 服务不可用，会尝试直接读取数据库（需关闭浏览器）
+Cookie 获取优先级 (Chrome/Edge):
+  1. Native Messaging (扩展自动启动 native-messaging-host，无需 serve)
+  2. Bridge HTTP 服务 (cookie-cli serve)
+  3. 本地导出文件 (~/.cookie/export.json)
+  4. 直接读取 SQLite 数据库（需关闭浏览器）
 
 示例:
-  cookie-cli serve                                        # 启动 Bridge 服务
-  cookie-cli get -domain example.com                      # 获取 Cookie
+  cookie-cli get -domain example.com                      # 获取 Cookie（自动选择最佳方式）
   cookie-cli get -domain example.com -name sid            # 获取特定 Cookie 值
   cookie-cli get -domain example.com -format header       # 输出为 Cookie 头格式
   cookie-cli list                                         # 列出所有域名
+  cookie-cli export -domain example.com                   # 导出 Cookie 到本地文件
+  cookie-cli serve                                        # 启动 Bridge 服务
 
-HTTP API:
+HTTP API (serve 模式):
   curl 'http://127.0.0.1:8008/cookies?domain=example.com'
   curl 'http://127.0.0.1:8008/cookies?domain=example.com&format=header'
   curl 'http://127.0.0.1:8008/cookies?domain=example.com&format=raw'`)
@@ -122,16 +137,33 @@ func handleGet(domain, name, browser, format string) {
 		browser = "chrome"
 	}
 
-	// Chrome/Edge: 优先通过 bridge 服务获取（不需要解密，不需要关闭浏览器）
 	if browser == "chrome" || browser == "edge" {
+		// 优先级 1: Native Messaging unix socket
+		nativeCookies, err := native.GetCookiesViaSocket(domain, name)
+		if err == nil {
+			printCookies(nativePairsToCookiePairs(nativeCookies), name, format)
+			return
+		}
+		log.Printf("Native Messaging 不可用 (%v)，尝试 Bridge HTTP", err)
+
+		// 优先级 2: Bridge HTTP 服务
 		cookies, err := getCookiesViaBridge(domain, name)
 		if err == nil {
 			printCookies(cookies, name, format)
 			return
 		}
-		log.Printf("Bridge 服务不可用 (%v)，回退到直接读取数据库", err)
+		log.Printf("Bridge 服务不可用 (%v)，尝试导出文件", err)
+
+		// 优先级 3: 本地导出文件
+		exportCookies, err := native.ReadExportCookies(domain, 300)
+		if err == nil {
+			printCookies(nativePairsToCookiePairs(exportCookies), name, format)
+			return
+		}
+		log.Printf("导出文件不可用 (%v)，回退到数据库直读", err)
 	}
 
+	// 优先级 4: SQLite 数据库直读
 	store, err := newStore(browser)
 	if err != nil {
 		log.Fatalf("创建 Store 失败: %v", err)
@@ -143,6 +175,14 @@ func handleGet(domain, name, browser, format string) {
 	}
 
 	printCookies(cookiesToPairs(cookies), name, format)
+}
+
+func nativePairsToCookiePairs(pairs []native.CookiePair) []cookiePair {
+	result := make([]cookiePair, len(pairs))
+	for i, p := range pairs {
+		result[i] = cookiePair{Name: p.Name, Value: p.Value}
+	}
+	return result
 }
 
 type cookiePair struct {
@@ -235,16 +275,38 @@ func handleList(browser string) {
 	}
 
 	if browser == "chrome" || browser == "edge" {
-		domains, err := listDomainsViaBridge()
+		// 优先级 1: Native Messaging
+		domains, err := native.ListDomainsViaSocket()
 		if err == nil {
 			for _, d := range domains {
 				fmt.Println(d)
 			}
 			return
 		}
-		log.Printf("Bridge 服务不可用 (%v)，回退到直接读取数据库", err)
+		log.Printf("Native Messaging 不可用 (%v)，尝试 Bridge HTTP", err)
+
+		// 优先级 2: Bridge HTTP
+		domains, err = listDomainsViaBridge()
+		if err == nil {
+			for _, d := range domains {
+				fmt.Println(d)
+			}
+			return
+		}
+		log.Printf("Bridge 服务不可用 (%v)，尝试导出文件", err)
+
+		// 优先级 3: 导出文件
+		domains, err = native.ReadExportDomains(300)
+		if err == nil {
+			for _, d := range domains {
+				fmt.Println(d)
+			}
+			return
+		}
+		log.Printf("导出文件不可用 (%v)，回退到数据库直读", err)
 	}
 
+	// 优先级 4: SQLite 直读
 	store, err := newStore(browser)
 	if err != nil {
 		log.Fatalf("创建 Store 失败: %v", err)
@@ -293,4 +355,19 @@ func handleServe(port string) {
 	if err := s.ListenAndServe(); err != nil {
 		log.Fatalf("服务启动失败: %v", err)
 	}
+}
+
+func handleNativeMessagingHost() {
+	if err := native.RunHost(); err != nil {
+		log.Fatalf("Native Messaging Host 启动失败: %v", err)
+	}
+}
+
+func handleExport(domain string) {
+	err := native.ExportCookiesViaSocket(domain)
+	if err != nil {
+		log.Fatalf("导出 Cookie 失败: %v", err)
+	}
+	path, _ := native.ExportFilePath()
+	fmt.Printf("Cookie 已导出到 %s\n", path)
 }

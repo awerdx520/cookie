@@ -14,18 +14,43 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// getWSL2WindowsUsername 获取 WSL2 中 Windows 用户名
-func getWSL2WindowsUsername() (string, error) {
+// getWSL2WindowsHome 获取 WSL2 中 Windows 用户的实际家目录路径（WSL 格式）。
+// 通过 %USERPROFILE% 获取，避免用户名与家目录名不一致的问题。
+func getWSL2WindowsHome() (string, error) {
 	if runtime.GOOS != "linux" {
 		return "", fmt.Errorf("非 Linux 环境")
 	}
 
-	windowsMount := "/mnt/c"
-	if _, err := os.Stat(windowsMount); err != nil {
-		return "", fmt.Errorf("未找到 Windows 挂载点 /mnt/c: %w", err)
+	// 优先通过 cmd.exe 获取 %USERPROFILE%，结果如 C:\Users\WPS
+	out, err := exec.Command("/mnt/c/Windows/System32/cmd.exe", "/c", "echo %USERPROFILE%").Output()
+	if err == nil {
+		winPath := strings.TrimSpace(strings.TrimRight(string(out), "\r\n"))
+		if winPath != "" && winPath != "%USERPROFILE%" {
+			wslPath := windowsPathToWSL(winPath)
+			if _, err := os.Stat(wslPath); err == nil {
+				return wslPath, nil
+			}
+		}
 	}
 
-	usersDir := filepath.Join(windowsMount, "Users")
+	// 回退：扫描 /mnt/c/Users 寻找有 Desktop 或 Documents 的目录
+	return getWSL2WindowsHomeFallback()
+}
+
+// windowsPathToWSL 将 Windows 路径转换为 WSL 路径。
+// C:\Users\WPS -> /mnt/c/Users/WPS
+func windowsPathToWSL(winPath string) string {
+	winPath = strings.TrimSpace(winPath)
+	if len(winPath) < 2 || winPath[1] != ':' {
+		return winPath
+	}
+	drive := strings.ToLower(string(winPath[0]))
+	rest := strings.ReplaceAll(winPath[2:], `\`, "/")
+	return "/mnt/" + drive + rest
+}
+
+func getWSL2WindowsHomeFallback() (string, error) {
+	usersDir := "/mnt/c/Users"
 	files, err := os.ReadDir(usersDir)
 	if err != nil {
 		return "", fmt.Errorf("读取 Windows 用户目录失败: %w", err)
@@ -34,21 +59,32 @@ func getWSL2WindowsUsername() (string, error) {
 	for _, file := range files {
 		if file.IsDir() {
 			name := file.Name()
-			if name != "Default" && name != "Public" && name != "All Users" &&
-				name != "Default User" && !strings.HasSuffix(name, ".bak") &&
-				name != "desktop.ini" {
-				userPath := filepath.Join(usersDir, name)
-				if _, err := os.Stat(filepath.Join(userPath, "Desktop")); err == nil {
-					return name, nil
-				}
-				if _, err := os.Stat(filepath.Join(userPath, "Documents")); err == nil {
-					return name, nil
-				}
+			if name == "Default" || name == "Public" || name == "All Users" ||
+				name == "Default User" || strings.HasSuffix(name, ".bak") ||
+				name == "desktop.ini" {
+				continue
+			}
+			userPath := filepath.Join(usersDir, name)
+			if _, err := os.Stat(filepath.Join(userPath, "Desktop")); err == nil {
+				return userPath, nil
+			}
+			if _, err := os.Stat(filepath.Join(userPath, "Documents")); err == nil {
+				return userPath, nil
 			}
 		}
 	}
 
 	return "", fmt.Errorf("未找到有效的 Windows 用户目录")
+}
+
+// getWSL2WindowsUsername 获取 WSL2 中 Windows 用户家目录的目录名。
+// 注意：这不一定等于当前用户名（用户可能改过名）。
+func getWSL2WindowsUsername() (string, error) {
+	home, err := getWSL2WindowsHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Base(home), nil
 }
 
 // isWSL2 检测是否运行在 WSL2 环境中
@@ -115,55 +151,20 @@ func NewChromeStore() (*ChromeStore, error) {
 
 // findChromeCookiePath 查找 Chrome Cookie 文件路径
 func findChromeCookiePath() (string, error) {
-	var basePath string
-
-	if runtime.GOOS == "linux" {
-		if _, err := os.Stat("/mnt/c"); err == nil {
-			user, err := getWSL2WindowsUsername()
-			if err != nil {
-				log.Printf("警告: 无法获取 Windows 用户名，使用默认路径: %v", err)
-				user = "thomas"
+	if runtime.GOOS == "linux" && isWSL2() {
+		home, err := getWSL2WindowsHome()
+		if err == nil {
+			basePath := filepath.Join(home, "AppData", "Local", "Google", "Chrome", "User Data")
+			if path, err := findCookieInChromiumBase(basePath); err == nil {
+				log.Printf("找到 Chrome Cookie 文件: %s", path)
+				return path, nil
 			}
-
-			winPaths := []string{
-				"/mnt/c/Users/%s/AppData/Local/Google/Chrome/User Data/Default/Network/Cookies",
-				"/mnt/c/Users/%s/AppData/Local/Google/Chrome/User Data/Profile 1/Network/Cookies",
-				"/mnt/c/Users/%s/AppData/Local/Google/Chrome/User Data/Profile 2/Network/Cookies",
-				"/mnt/c/Users/%s/AppData/Local/Google/Chrome/User Data/Default/Cookies",
-				"/mnt/c/Users/%s/AppData/Local/Google/Chrome/User Data/Profile 1/Cookies",
-				"/mnt/c/Users/%s/AppData/Local/Google/Chrome/User Data/Profile 2/Cookies",
-			}
-
-			for _, pattern := range winPaths {
-				path := fmt.Sprintf(pattern, user)
-				if _, err := os.Stat(path); err == nil {
-					log.Printf("找到 Chrome Cookie 文件: %s", path)
-					return path, nil
-				}
-			}
-
-			usersDir := "/mnt/c/Users"
-			if files, err := os.ReadDir(usersDir); err == nil {
-				for _, file := range files {
-					if file.IsDir() {
-						userName := file.Name()
-						if userName != "Default" && userName != "Public" && userName != "All Users" &&
-							userName != "Default User" && !strings.HasSuffix(userName, ".bak") &&
-							userName != "desktop.ini" {
-							for _, pattern := range winPaths {
-								path := fmt.Sprintf(pattern, userName)
-								if _, err := os.Stat(path); err == nil {
-									log.Printf("找到 Chrome Cookie 文件（用户 %s）: %s", userName, path)
-									return path, nil
-								}
-							}
-						}
-					}
-				}
-			}
+		} else {
+			log.Printf("警告: 无法获取 Windows 家目录: %v", err)
 		}
 	}
 
+	var basePath string
 	switch runtime.GOOS {
 	case "windows":
 		basePath = filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome", "User Data")
@@ -173,19 +174,23 @@ func findChromeCookiePath() (string, error) {
 		return "", fmt.Errorf("不支持的操作系统: %s（仅支持 Windows 和 Linux）", runtime.GOOS)
 	}
 
-	profiles := []string{
-		filepath.Join(basePath, "Default", "Cookies"),
-		filepath.Join(basePath, "Profile 1", "Cookies"),
-		filepath.Join(basePath, "Profile 2", "Cookies"),
-	}
+	return findCookieInChromiumBase(basePath)
+}
 
+// findCookieInChromiumBase 在 Chromium 系浏览器 User Data 目录下查找 Cookie 文件
+func findCookieInChromiumBase(basePath string) (string, error) {
+	profiles := []string{"Default", "Profile 1", "Profile 2", "Profile 3"}
 	for _, profile := range profiles {
-		if _, err := os.Stat(profile); err == nil {
-			return profile, nil
+		for _, sub := range []string{
+			filepath.Join(basePath, profile, "Network", "Cookies"),
+			filepath.Join(basePath, profile, "Cookies"),
+		} {
+			if _, err := os.Stat(sub); err == nil {
+				return sub, nil
+			}
 		}
 	}
-
-	return "", fmt.Errorf("未找到 Chrome Cookie 文件，请确保 Chrome 已安装并至少运行过一次：%s", basePath)
+	return "", fmt.Errorf("未找到 Cookie 文件: %s", basePath)
 }
 
 // GetCookies 实现 Store 接口

@@ -132,6 +132,15 @@ Firefox Cookie 为明文存储，直接读取数据库即可。
 6. 单个 Cookie 输出改为纯值无换行（适配 elisp `shell-command-to-string`）
 7. 新增 `cookie-list-domains` 交互命令
 
+### 第六阶段：Native Messaging + 文件导出（2026-04-03）
+1. 新增 `internal/native` 包：NM 协议编解码、Host、Client、文件导出
+2. Native Messaging Host 通过 unix domain socket 桥接 CLI 与 Chrome 扩展
+3. Chrome 扩展同时支持 WebSocket（Offscreen）和 Native Messaging 两种通道
+4. CLI 四级回退链：Bridge HTTP → Native Messaging socket → 导出文件 → SQLite
+5. 新增 `cookie-cli native-messaging-host` / `export` 子命令
+6. `make native-install` / `native-uninstall` 支持 WSL2 和原生 Linux
+7. 文件导出格式：`~/.cookie/export.json`，带 timestamp，支持过期检查
+
 ### 后续（可选）
 1. Cookie 监控和自动刷新
 2. 图形化配置工具

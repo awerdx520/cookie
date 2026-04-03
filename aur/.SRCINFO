@@ -1,0 +1,20 @@
+pkgbase = cookie-cli-git
+	pkgdesc = Extract browser cookies and integrate with Emacs restclient.el
+	pkgver = r5.b245f28
+	pkgrel = 1
+	url = https://github.com/awerdx520/cookie
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = go
+	makedepends = git
+	depends = glibc
+	optdepends = google-chrome: Chrome cookie extraction
+	optdepends = chromium: Chromium cookie extraction
+	optdepends = firefox: Firefox cookie extraction
+	provides = cookie-cli
+	conflicts = cookie-cli
+	source = cookie-cli-git::git+https://github.com/awerdx520/cookie.git
+	sha256sums = SKIP
+
+pkgname = cookie-cli-git

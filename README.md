@@ -1,6 +1,6 @@
-# Cookie — 浏览器 Cookie 提取与 Restclient 集成工具
+# Cookie — 浏览器 Cookie 提取工具
 
-从浏览器提取 Cookie 并与 Emacs restclient.el 集成，方便本地开发时自动携带云端服务的认证 Token。
+从浏览器提取 Cookie，方便本地开发时自动携带云端服务的认证 Token。
 
 ## 功能特性
 
@@ -8,21 +8,20 @@
 - **多种通信模式**：Serve（HTTP+WebSocket）、Native Messaging（无需常驻进程）、文件导出
 - **多浏览器支持**：Chrome、Firefox、Edge
 - **跨平台**：Windows、Linux、WSL2
-- **Emacs 集成**：与 restclient.el 深度集成
 - **HTTP API**：提供本地 REST API，方便任意工具调用
 
 ## 架构
 
 ```
-                                Chrome 浏览器
-                                ┌──────────────────┐
-curl / Emacs / 脚本              │  Cookie Bridge    │
-       │                         │  扩展 (MV3)       │
-       ▼                         │  chrome.cookies   │
-┌──────────────┐                 │  API              │
-│ cookie-cli   │ ←── WebSocket ──┤                   │
-│              │ ←── Native Msg ─┤                   │
-│              │                 └──────────────────┘
+                              Chrome 浏览器
+                              ┌──────────────────┐
+curl / 脚本 / 编辑器          │  Cookie Bridge    │
+       │                      │  扩展 (MV3)       │
+       ▼                      │  chrome.cookies   │
+┌──────────────┐              │  API              │
+│ cookie-cli   │ ←─ WebSocket ┤                   │
+│              │ ←─ NativeMsg ─┤                   │
+│              │              └──────────────────┘
 └──────┬───────┘
        │
        ├──▶ 模式 1: Serve（HTTP + WebSocket，需启动常驻服务）
@@ -221,78 +220,7 @@ curl 'http://127.0.0.1:8008/cookies?domain=example.com&format=raw'
 
 ## Emacs 集成
 
-### use-package + straight.el 配置（推荐）
-
-```elisp
-(use-package restclient-cookie
-  :straight (:type git :host github :repo "thomas/cookie" :files ("elisp/*.el"))
-  :after restclient
-  :custom
-  (restclient-cookie-default-browser "chrome")
-  (restclient-cookie-cli-path "cookie-cli")
-  (restclient-cookie-prefer-bridge nil)
-  (restclient-cookie-cache-expire 300))
-```
-
-Native Messaging 模式下无需启动 `cookie-cli serve`，`restclient-cookie-prefer-bridge` 设为 `nil` 即可让 CLI 按优先级自动选择（Native Messaging > Bridge HTTP > 导出文件 > SQLite）。
-
-### 手动配置
-
-```elisp
-(add-to-list 'load-path "/path/to/cookie/elisp")
-(require 'restclient-cookie)
-
-;; 可选配置
-(setq restclient-cookie-default-browser "chrome")  ; "chrome", "firefox", "edge"
-(setq restclient-cookie-bridge-url "http://127.0.0.1:8008") ; Bridge 服务地址
-(setq restclient-cookie-cache-expire 300)          ; 缓存过期秒数，0 禁用缓存
-(setq restclient-cookie-prefer-bridge nil)          ; nil 时 CLI 按优先级自动选择通信模式
-```
-
-### Restclient 使用
-
-restclient.el 使用 `:=` 操作符求值 elisp 表达式。restclient-cookie.el 提供的函数可直接用于变量定义：
-
-```restclient
-# 获取单个 Cookie 值
-:token := (restclient-cookie-get "api.example.com" "auth_token")
-
-GET https://api.example.com/user
-Authorization: Bearer :token
-
-###
-
-# 获取所有 Cookie 并以 header 格式注入
-:cookies := (restclient-cookie-header "api.example.com")
-
-GET https://api.example.com/data
-Cookie: :cookies
-
-###
-
-# 仅通过 HTTP API 获取（不回退 CLI，速度更快）
-:session := (restclient-cookie-http-get "api.example.com" "sessionid")
-
-POST https://api.example.com/submit
-Cookie: session=:session
-```
-
-### 可用函数
-
-| 函数 | 说明 |
-|------|------|
-| `(restclient-cookie-get DOMAIN NAME)` | 获取指定 Cookie 值（优先 Bridge，回退 CLI） |
-| `(restclient-cookie-http-get DOMAIN NAME)` | 仅通过 Bridge HTTP API 获取 |
-| `(restclient-cookie-header DOMAIN)` | 获取所有 Cookie，返回 `name1=val1; name2=val2` 格式 |
-| `(restclient-cookie-get-value DOMAIN NAME)` | `restclient-cookie-get` 的别名 |
-
-### 交互命令
-
-| 命令 | 说明 |
-|------|------|
-| `M-x restclient-cookie-get-interactive` | 交互式获取 Cookie 值并复制到剪贴板 |
-| `M-x restclient-cookie-list-domains` | 列出 Bridge 服务已知的所有域名 |
-| `M-x restclient-cookie-clear-cache` | 清除 Cookie 缓存 |
+项目提供 `elisp/restclient-cookie.el`，可与 [restclient.el](https://github.com/pashky/restclient.el) 集成，在 HTTP 请求中自动注入 Cookie。详细配置和用法参见该文件头部注释。
 
 ## Cookie 获取策略
 

@@ -1,0 +1,70 @@
+# Maintainer: awerdx520 <awerdx520@github>
+pkgname=cookie-cli-git
+pkgver=r5.b245f28
+pkgrel=1
+pkgdesc='Extract browser cookies and integrate with Emacs restclient.el'
+arch=('x86_64' 'aarch64')
+url='https://github.com/awerdx520/cookie'
+license=('MIT')
+depends=('glibc')
+makedepends=('go' 'git')
+optdepends=(
+    'google-chrome: Chrome cookie extraction'
+    'chromium: Chromium cookie extraction'
+    'firefox: Firefox cookie extraction'
+)
+provides=('cookie-cli')
+conflicts=('cookie-cli')
+source=("${pkgname}::git+${url}.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$pkgname"
+    printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cd "$pkgname"
+    export CGO_ENABLED=1
+    export GOFLAGS="-buildmode=pie -trimpath -mod=readonly -modcacherw"
+    export GOPATH="$srcdir/gopath"
+    go build -o cookie-cli -ldflags "-linkmode=external -s -w" ./cmd/cookie-cli
+}
+
+package() {
+    cd "$pkgname"
+    install -Dm755 cookie-cli "$pkgdir/usr/bin/cookie-cli"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 elisp/restclient-cookie.el "$pkgdir/usr/share/emacs/site-lisp/restclient-cookie.el"
+
+    # Native Messaging Host manifest template
+    install -Dm644 /dev/stdin "$pkgdir/usr/lib/cookie-cli/native-messaging/com.cookie.bridge.json" <<EOF
+{
+  "name": "com.cookie.bridge",
+  "description": "Cookie Bridge Native Messaging Host",
+  "path": "/usr/bin/cookie-cli",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://EXTENSION_ID_HERE/"]
+}
+EOF
+
+    # Install script to register native messaging host
+    install -Dm755 /dev/stdin "$pkgdir/usr/bin/cookie-native-install" <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+NM_HOST_NAME="com.cookie.bridge"
+TEMPLATE="/usr/lib/cookie-cli/native-messaging/$NM_HOST_NAME.json"
+
+for dir in \
+    "$HOME/.config/google-chrome/NativeMessagingHosts" \
+    "$HOME/.config/chromium/NativeMessagingHosts"; do
+    mkdir -p "$dir"
+    cp "$TEMPLATE" "$dir/$NM_HOST_NAME.json"
+done
+
+echo "Native Messaging Host manifest installed."
+echo "Edit the manifest files to replace EXTENSION_ID_HERE with your extension ID."
+echo "  Chrome:    ~/.config/google-chrome/NativeMessagingHosts/$NM_HOST_NAME.json"
+echo "  Chromium:  ~/.config/chromium/NativeMessagingHosts/$NM_HOST_NAME.json"
+SCRIPT
+}

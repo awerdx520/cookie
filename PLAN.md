@@ -83,16 +83,16 @@ Firefox Cookie 为明文存储，直接读取数据库即可。
 - MV3 Service Worker 不支持 WebSocket，通过 `chrome.offscreen` API 创建 Offscreen Document 持有连接
 - Offscreen Document 收到请求后通过 `chrome.runtime.sendMessage` 转发给 Service Worker 处理 `chrome.cookies` API 调用
 
-#### 2. cookie-el (Emacs Lisp 包)
+#### 2. restclient-cookie.el (Emacs Lisp 包)
 
 **功能**：
-- 提供函数 `cookie-get` 调用 `cookie-cli` 获取 Cookie 值
-- 定义 restclient 变量语法糖：`{{cookie:example.com}}` 或 `{{cookie:example.com token}}`
-- 可选：提供 minor mode，自动为所有 restclient 请求注入 Cookie
+- 提供函数 `restclient-cookie-get` 调用 `cookie-cli` 获取 Cookie 值
+- 与 restclient.el 原生 `:=` elisp 求值机制集成
+- 提供 `restclient-cookie-header` 返回 HTTP Cookie 头格式字符串
 
 **实现要点**：
-- 使用 `(shell-command-to-string "cookie-cli get example.com token")` 获取值
-- 处理可能的多行输出和错误情况
+- 使用 `(shell-command-to-string "cookie-cli get ...")` 获取值
+- 支持 Bridge HTTP API 和 CLI 双后端，可配置优先级
 - 缓存机制避免频繁调用命令行工具
 
 #### 3. 配置系统
@@ -114,7 +114,7 @@ Firefox Cookie 为明文存储，直接读取数据库即可。
 3. v20 解密支持（flag 0x01/0x02，flag 0x03 受 CNG/KSP 限制）
 
 ### 第三阶段：Emacs 集成 ✅
-1. 编写 `cookie.el` 基础函数
+1. 编写 `restclient-cookie.el` 基础函数
 2. 实现 restclient.el 集成语法
 
 ### 第四阶段：Chrome 扩展桥接 ✅（2026-04-03）
@@ -124,13 +124,13 @@ Firefox Cookie 为明文存储，直接读取数据库即可。
 4. 彻底绕过 Chrome v20 加密和浏览器文件锁问题
 
 ### 第五阶段：完善 Restclient Cookie 支持（2026-04-03）
-1. 重写 `cookie.el`：移除有问题的 `{{cookie:...}}` 文本替换方式和不存在的 `restclient-request-hook`
-2. 改用 restclient.el 原生 `:=` elisp 求值机制：`cookie-get`、`cookie-http-get`、`cookie-header`
-3. 新增 `cookie-header` 函数，返回 `name1=val1; name2=val2` 格式
+1. 重写为 `restclient-cookie.el`：移除有问题的 `{{cookie:...}}` 文本替换方式和不存在的 `restclient-request-hook`
+2. 改用 restclient.el 原生 `:=` elisp 求值机制：`restclient-cookie-get`、`restclient-cookie-http-get`、`restclient-cookie-header`
+3. 新增 `restclient-cookie-header` 函数，返回 `name1=val1; name2=val2` 格式
 4. Bridge HTTP API 新增 `format` 参数（`header`/`raw`）
 5. CLI `get` 命令新增 `-format` 参数（`header`/`json`）
 6. 单个 Cookie 输出改为纯值无换行（适配 elisp `shell-command-to-string`）
-7. 新增 `cookie-list-domains` 交互命令
+7. 新增 `restclient-cookie-list-domains` 交互命令
 
 ### 第六阶段：Native Messaging + 文件导出（2026-04-03）
 1. 新增 `internal/native` 包：NM 协议编解码、Host、Client、文件导出
@@ -151,15 +151,19 @@ Firefox Cookie 为明文存储，直接读取数据库即可。
 
 ```restclient
 # 定义变量，从 Chrome 获取 example.com 的 token Cookie
-:token = {{(cookie-get "example.com" "token")}}
+:token := (restclient-cookie-get "example.com" "token")
 
 # 使用变量
 GET https://api.example.com/user
 Authorization: Bearer :token
 
+###
+
+:session := (restclient-cookie-get "example.com" "sessionid")
+
 POST https://api.example.com/data
 Content-Type: application/json
-Cookie: session={{cookie-get "example.com" "sessionid"}}
+Cookie: session=:session
 
 {
   "data": "test"

@@ -4,17 +4,17 @@
 # 前置条件：
 #   1. cookie-cli serve 已启动
 #   2. Chrome Cookie Bridge 扩展已安装并连接
-#   3. Emacs 中已加载 cookie.el:
+#   3. Emacs 中已加载 restclient-cookie.el:
 #      (add-to-list 'load-path "/path/to/cookie/elisp")
-#      (require 'cookie)
+#      (require 'restclient-cookie)
 
 # ============================================================
 # 方法一：通过 := 求值获取单个 Cookie（推荐）
 # ============================================================
 # restclient.el 的 := 操作符会将右侧作为 elisp 求值。
-# cookie-get 优先走 Bridge HTTP API，失败则回退到 CLI。
+# restclient-cookie-get 优先走 Bridge HTTP API，失败则回退到 CLI。
 
-:token := (cookie-get "api.example.com" "auth_token")
+:token := (restclient-cookie-get "api.example.com" "auth_token")
 
 GET https://api.example.com/user/profile
 Authorization: Bearer :token
@@ -25,10 +25,10 @@ Content-Type: application/json
 # ============================================================
 # 方法二：获取所有 Cookie 并以 header 格式注入
 # ============================================================
-# cookie-header 返回 "name1=val1; name2=val2" 格式，
+# restclient-cookie-header 返回 "name1=val1; name2=val2" 格式，
 # 可直接用作 Cookie 请求头的值。
 
-:cookies := (cookie-header "api.example.com")
+:cookies := (restclient-cookie-header "api.example.com")
 
 GET https://api.example.com/data
 Cookie: :cookies
@@ -38,9 +38,9 @@ Cookie: :cookies
 # ============================================================
 # 方法三：仅通过 HTTP API 获取（不回退到 CLI）
 # ============================================================
-# cookie-http-get 只走 Bridge HTTP API，速度更快。
+# restclient-cookie-http-get 只走 Bridge HTTP API，速度更快。
 
-:session := (cookie-http-get "api.example.com" "sessionid")
+:session := (restclient-cookie-http-get "api.example.com" "sessionid")
 
 POST https://api.example.com/submit
 Content-Type: application/json
@@ -56,8 +56,8 @@ Cookie: session=:session
 # 方法四：组合多个 Cookie 值
 # ============================================================
 
-:csrf := (cookie-get "api.example.com" "csrftoken")
-:sid := (cookie-get "api.example.com" "sessionid")
+:csrf := (restclient-cookie-get "api.example.com" "csrftoken")
+:sid := (restclient-cookie-get "api.example.com" "sessionid")
 
 POST https://api.example.com/update
 Content-Type: application/json
@@ -73,7 +73,7 @@ Cookie: csrftoken=:csrf; sessionid=:sid
 # ============================================================
 # 方法五：使用字面量变量 + shell 命令获取
 # ============================================================
-# 如果不想依赖 cookie.el，也可以直接调用 CLI：
+# 如果不想依赖 restclient-cookie.el，也可以直接调用 CLI：
 
 :raw_token := (string-trim (shell-command-to-string "cookie-cli get -domain api.example.com -name auth_token"))
 
@@ -87,7 +87,7 @@ Authorization: Bearer :raw_token
 # ============================================================
 
 # 开发环境
-:dev_token := (cookie-get "dev.api.example.com" "auth_token")
+:dev_token := (restclient-cookie-get "dev.api.example.com" "auth_token")
 
 GET https://dev.api.example.com/user
 Authorization: Bearer :dev_token
@@ -95,7 +95,7 @@ Authorization: Bearer :dev_token
 ###
 
 # 生产环境（需要时取消注释）
-# :prod_token := (cookie-get "api.example.com" "auth_token")
+# :prod_token := (restclient-cookie-get "api.example.com" "auth_token")
 #
 # GET https://api.example.com/user
 # Authorization: Bearer :prod_token
@@ -107,7 +107,7 @@ Authorization: Bearer :dev_token
 # ============================================================
 # condition-case 可在获取失败时提供默认值
 
-:safe_token := (or (cookie-get "api.example.com" "auth_token") "MISSING_TOKEN")
+:safe_token := (or (restclient-cookie-get "api.example.com" "auth_token") "MISSING_TOKEN")
 
 GET https://api.example.com/test
 Authorization: Bearer :safe_token

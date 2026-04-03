@@ -123,6 +123,15 @@ Firefox Cookie 为明文存储，直接读取数据库即可。
 3. CLI 自动检测 Bridge 服务，优先使用扩展获取明文 Cookie
 4. 彻底绕过 Chrome v20 加密和浏览器文件锁问题
 
+### 第五阶段：完善 Restclient Cookie 支持（2026-04-03）
+1. 重写 `cookie.el`：移除有问题的 `{{cookie:...}}` 文本替换方式和不存在的 `restclient-request-hook`
+2. 改用 restclient.el 原生 `:=` elisp 求值机制：`cookie-get`、`cookie-http-get`、`cookie-header`
+3. 新增 `cookie-header` 函数，返回 `name1=val1; name2=val2` 格式
+4. Bridge HTTP API 新增 `format` 参数（`header`/`raw`）
+5. CLI `get` 命令新增 `-format` 参数（`header`/`json`）
+6. 单个 Cookie 输出改为纯值无换行（适配 elisp `shell-command-to-string`）
+7. 新增 `cookie-list-domains` 交互命令
+
 ### 后续（可选）
 1. Cookie 监控和自动刷新
 2. 图形化配置工具

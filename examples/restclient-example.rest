@@ -1,30 +1,48 @@
+# -*- restclient -*-
 # Restclient 与 Cookie 集成示例
 #
-# 本示例展示如何从 Chrome 自动获取 Cookie 并注入到 HTTP 请求中。
-# 需要先安装 cookie-cli 并配置 cookie.el。
+# 前置条件：
+#   1. cookie-cli serve 已启动
+#   2. Chrome Cookie Bridge 扩展已安装并连接
+#   3. Emacs 中已加载 cookie.el:
+#      (add-to-list 'load-path "/path/to/cookie/elisp")
+#      (require 'cookie)
 
-# 方法一：使用 cookie.el 提供的语法糖
-# 在 Emacs 中加载 cookie.el 后，可以使用以下语法：
-# {{cookie:domain}} 或 {{cookie:domain name}}
+# ============================================================
+# 方法一：通过 := 求值获取单个 Cookie（推荐）
+# ============================================================
+# restclient.el 的 := 操作符会将右侧作为 elisp 求值。
+# cookie-get 优先走 Bridge HTTP API，失败则回退到 CLI。
 
-# 假设我们的云端服务域名是 api.example.com
-# 认证 Token 存储在名为 "auth_token" 的 Cookie 中
+:token := (cookie-get "api.example.com" "auth_token")
 
-# 定义变量，从 Chrome 获取 Cookie 值
-:token = {{cookie:api.example.com auth_token}}
-
-# 使用变量发起请求
 GET https://api.example.com/user/profile
 Authorization: Bearer :token
 Content-Type: application/json
 
 ###
 
-# 方法二：直接使用 shell 命令获取 Cookie 值
-# restclient.el 支持通过 shell 命令获取变量值
-:session = {{(shell-command-to-string "cookie-cli get -domain api.example.com -name sessionid")}}
+# ============================================================
+# 方法二：获取所有 Cookie 并以 header 格式注入
+# ============================================================
+# cookie-header 返回 "name1=val1; name2=val2" 格式，
+# 可直接用作 Cookie 请求头的值。
 
-POST https://api.example.com/data
+:cookies := (cookie-header "api.example.com")
+
+GET https://api.example.com/data
+Cookie: :cookies
+
+###
+
+# ============================================================
+# 方法三：仅通过 HTTP API 获取（不回退到 CLI）
+# ============================================================
+# cookie-http-get 只走 Bridge HTTP API，速度更快。
+
+:session := (cookie-http-get "api.example.com" "sessionid")
+
+POST https://api.example.com/submit
 Content-Type: application/json
 Cookie: session=:session
 
@@ -34,39 +52,62 @@ Cookie: session=:session
 
 ###
 
-# 方法三：使用 cookie.el 的辅助函数
-# 在 Emacs Lisp 中，可以先获取 Cookie 值，再设置为变量
-# (setq token (cookie-get-value "api.example.com" "auth_token"))
-# 然后在 restclient 中使用 :token 变量
+# ============================================================
+# 方法四：组合多个 Cookie 值
+# ============================================================
 
-# 获取多个 Cookie
-GET https://api.example.com/items
-Authorization: Bearer {{cookie:api.example.com auth_token}}
-Cookie: csrftoken={{cookie:api.example.com csrftoken}}; session={{cookie:api.example.com sessionid}}
+:csrf := (cookie-get "api.example.com" "csrftoken")
+:sid := (cookie-get "api.example.com" "sessionid")
 
-###
+POST https://api.example.com/update
+Content-Type: application/json
+X-CSRFToken: :csrf
+Cookie: csrftoken=:csrf; sessionid=:sid
 
-# 错误处理示例
-# 如果 Cookie 不存在或获取失败，可以设置默认值
-# 注意：这需要自定义 Emacs Lisp 函数
-
-# 假设我们有一个安全的获取函数
-:maybe_token = {{(condition-case nil (cookie-get-value "api.example.com" "auth_token") (error "INVALID_TOKEN"))}}
-
-GET https://api.example.com/test
-Authorization: Bearer :maybe_token
+{
+  "name": "updated"
+}
 
 ###
 
-# 多环境配置示例
-# 通过环境变量或配置文件区分不同环境的域名
-:dev_token = {{cookie:dev.api.example.com auth_token}}
-:prod_token = {{cookie:api.example.com auth_token}}
+# ============================================================
+# 方法五：使用字面量变量 + shell 命令获取
+# ============================================================
+# 如果不想依赖 cookie.el，也可以直接调用 CLI：
 
-# 开发环境请求
+:raw_token := (string-trim (shell-command-to-string "cookie-cli get -domain api.example.com -name auth_token"))
+
+GET https://api.example.com/user
+Authorization: Bearer :raw_token
+
+###
+
+# ============================================================
+# 多环境示例
+# ============================================================
+
+# 开发环境
+:dev_token := (cookie-get "dev.api.example.com" "auth_token")
+
 GET https://dev.api.example.com/user
 Authorization: Bearer :dev_token
 
-# 生产环境请求（注释掉开发环境请求即可切换）
+###
+
+# 生产环境（需要时取消注释）
+# :prod_token := (cookie-get "api.example.com" "auth_token")
+#
 # GET https://api.example.com/user
 # Authorization: Bearer :prod_token
+
+###
+
+# ============================================================
+# 错误处理示例
+# ============================================================
+# condition-case 可在获取失败时提供默认值
+
+:safe_token := (or (cookie-get "api.example.com" "auth_token") "MISSING_TOKEN")
+
+GET https://api.example.com/test
+Authorization: Bearer :safe_token

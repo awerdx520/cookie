@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"cookie/internal/bridge"
@@ -18,6 +19,7 @@ func main() {
 	getDomain := getCmd.String("domain", "", "域名")
 	getName := getCmd.String("name", "", "Cookie 名称（可选）")
 	getBrowser := getCmd.String("browser", "", "浏览器类型: chrome, firefox, edge（默认 chrome）")
+	getFormat := getCmd.String("format", "", "输出格式: 默认 name=value 逐行，header 输出为 Cookie 头格式")
 
 	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
 	listBrowser := listCmd.String("browser", "", "浏览器类型: chrome, firefox, edge（默认 chrome）")
@@ -37,7 +39,7 @@ func main() {
 			getCmd.PrintDefaults()
 			os.Exit(1)
 		}
-		handleGet(*getDomain, *getName, *getBrowser)
+		handleGet(*getDomain, *getName, *getBrowser, *getFormat)
 	case "list":
 		listCmd.Parse(os.Args[2:])
 		handleList(*listBrowser)
@@ -54,7 +56,7 @@ func printHelp() {
 	fmt.Println(`cookie-cli - 浏览器 Cookie 提取工具
 
 用法:
-  cookie-cli get -domain <域名> [-name <Cookie 名称>] [-browser <浏览器>]
+  cookie-cli get -domain <域名> [-name <名称>] [-browser <浏览器>] [-format <格式>]
   cookie-cli list [-browser <浏览器>]
   cookie-cli serve [-port <端口>]
 
@@ -68,17 +70,27 @@ func printHelp() {
   firefox   Mozilla Firefox
   edge      Microsoft Edge
 
+输出格式 (-format):
+  (默认)    每行一个 name=value
+  header    Cookie 头格式: name1=val1; name2=val2
+  json      JSON 数组格式
+
 Chrome/Edge Cookie 获取方式:
   1. 推荐: 先运行 cookie-cli serve，安装 Cookie Bridge 扩展，
      然后 get/list 命令会自动通过扩展获取明文 Cookie（无需关闭浏览器）
   2. 回退: 若 Bridge 服务不可用，会尝试直接读取数据库（需关闭浏览器）
 
 示例:
-  cookie-cli serve                              # 启动 Bridge 服务
-  cookie-cli get -domain example.com            # 获取 Cookie
-  cookie-cli get -domain example.com -name sid  # 获取特定 Cookie
-  cookie-cli list                               # 列出所有域名
-  curl http://127.0.0.1:8008/cookies?domain=example.com  # HTTP API`)
+  cookie-cli serve                                        # 启动 Bridge 服务
+  cookie-cli get -domain example.com                      # 获取 Cookie
+  cookie-cli get -domain example.com -name sid            # 获取特定 Cookie 值
+  cookie-cli get -domain example.com -format header       # 输出为 Cookie 头格式
+  cookie-cli list                                         # 列出所有域名
+
+HTTP API:
+  curl 'http://127.0.0.1:8008/cookies?domain=example.com'
+  curl 'http://127.0.0.1:8008/cookies?domain=example.com&format=header'
+  curl 'http://127.0.0.1:8008/cookies?domain=example.com&format=raw'`)
 }
 
 // newStore 根据浏览器类型创建对应的 Store
@@ -102,7 +114,7 @@ func newStore(browser string) (cookie.Store, error) {
 	}
 }
 
-func handleGet(domain, name, browser string) {
+func handleGet(domain, name, browser, format string) {
 	if browser == "" {
 		browser = os.Getenv("COOKIE_BROWSER")
 	}
@@ -114,7 +126,7 @@ func handleGet(domain, name, browser string) {
 	if browser == "chrome" || browser == "edge" {
 		cookies, err := getCookiesViaBridge(domain, name)
 		if err == nil {
-			printCookies(cookies, name)
+			printCookies(cookies, name, format)
 			return
 		}
 		log.Printf("Bridge 服务不可用 (%v)，回退到直接读取数据库", err)
@@ -130,7 +142,7 @@ func handleGet(domain, name, browser string) {
 		log.Fatalf("获取 Cookie 失败: %v", err)
 	}
 
-	printCookies(cookiesToPairs(cookies), name)
+	printCookies(cookiesToPairs(cookies), name, format)
 }
 
 type cookiePair struct {
@@ -138,19 +150,33 @@ type cookiePair struct {
 	Value string `json:"value"`
 }
 
-func printCookies(cookies []cookiePair, filterName string) {
+func printCookies(cookies []cookiePair, filterName, format string) {
 	if filterName != "" {
 		for _, c := range cookies {
 			if c.Name == filterName {
-				fmt.Println(c.Value)
+				fmt.Print(c.Value)
 				return
 			}
 		}
-		fmt.Printf("未找到 Cookie: %s\n", filterName)
+		fmt.Fprintf(os.Stderr, "未找到 Cookie: %s\n", filterName)
 		os.Exit(1)
 	}
-	for _, c := range cookies {
-		fmt.Printf("%s=%s\n", c.Name, c.Value)
+
+	switch format {
+	case "header":
+		parts := make([]string, len(cookies))
+		for i, c := range cookies {
+			parts[i] = c.Name + "=" + c.Value
+		}
+		fmt.Print(strings.Join(parts, "; "))
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(cookies)
+	default:
+		for _, c := range cookies {
+			fmt.Printf("%s=%s\n", c.Name, c.Value)
+		}
 	}
 }
 

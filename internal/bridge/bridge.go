@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -168,6 +169,7 @@ func (s *Server) handleGetCookies(w http.ResponseWriter, r *http.Request) {
 	domain := r.URL.Query().Get("domain")
 	name := r.URL.Query().Get("name")
 	url := r.URL.Query().Get("url")
+	format := r.URL.Query().Get("format")
 
 	if domain == "" && url == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "需要 domain 或 url 参数"})
@@ -192,9 +194,24 @@ func (s *Server) handleGetCookies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if format == "header" {
+		header := cookiesToHeader(resp.Data)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		headerJSON, _ := json.Marshal(header)
+		fmt.Fprintf(w, `{"ok":true,"header":%s,"cookies":%s}`, headerJSON, resp.Data)
+		return
+	}
+
+	if format == "raw" {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, cookiesToHeader(resp.Data))
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	// resp.Data 已经是 JSON 数组，直接写入
 	fmt.Fprintf(w, `{"ok":true,"cookies":%s}`, resp.Data)
 }
 
@@ -227,6 +244,22 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"extension": connected,
 	}
 	writeJSON(w, http.StatusOK, status)
+}
+
+// cookiesToHeader 将 JSON cookie 数组转换为 "name1=val1; name2=val2" 格式
+func cookiesToHeader(data json.RawMessage) string {
+	var cookies []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(data, &cookies); err != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(cookies))
+	for _, c := range cookies {
+		parts = append(parts, c.Name+"="+c.Value)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {

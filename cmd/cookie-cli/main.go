@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,15 +16,43 @@ import (
 	"cookie/internal/native"
 )
 
+const defaultCacheExpireSeconds = 300
+
+// exportMaxAgeSeconds 返回 ~/.cookie/export.json 作为回退来源时的最大允许年龄（秒）。
+// 可通过环境变量 COOKIE_CACHE_EXPIRE 覆盖；未设置或非正整数时默认为 defaultCacheExpireSeconds。
+// 设为 0 表示不限制导出文件年龄（与 native.ReadExportCookies 的 maxAge 语义一致）。
+func exportMaxAgeSeconds() int {
+	s := os.Getenv("COOKIE_CACHE_EXPIRE")
+	if s == "" {
+		return defaultCacheExpireSeconds
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		return defaultCacheExpireSeconds
+	}
+	return n
+}
+
+// resolveExportMaxAge 确定 export.json 回退时的最大文件年龄（秒）。
+// cliFlag 为 -1 时使用 COOKIE_CACHE_EXPIRE / 默认 300；否则以命令行值为准（0 表示不限制）。
+func resolveExportMaxAge(cliFlag int) int {
+	if cliFlag >= 0 {
+		return cliFlag
+	}
+	return exportMaxAgeSeconds()
+}
+
 func main() {
 	getCmd := flag.NewFlagSet("get", flag.ExitOnError)
 	getDomain := getCmd.String("domain", "", "域名")
 	getName := getCmd.String("name", "", "Cookie 名称（可选）")
 	getBrowser := getCmd.String("browser", "", "浏览器类型: chrome, firefox, edge（默认 chrome）")
 	getFormat := getCmd.String("format", "", "输出格式: 默认 name=value 逐行，header 输出为 Cookie 头格式")
+	getCacheExpire := getCmd.Int("cache-expire", -1, "export.json 回退最大文件年龄（秒）；-1 使用 COOKIE_CACHE_EXPIRE 或默认 300；0 不限制")
 
 	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
 	listBrowser := listCmd.String("browser", "", "浏览器类型: chrome, firefox, edge（默认 chrome）")
+	listCacheExpire := listCmd.Int("cache-expire", -1, "export.json 回退最大文件年龄（秒）；-1 使用 COOKIE_CACHE_EXPIRE 或默认 300；0 不限制")
 
 	serveCmd := flag.NewFlagSet("serve", flag.ExitOnError)
 	servePort := serveCmd.String("port", "8008", "HTTP 服务端口")
@@ -43,10 +72,10 @@ func main() {
 			getCmd.PrintDefaults()
 			os.Exit(1)
 		}
-		handleGet(*getDomain, *getName, *getBrowser, *getFormat)
+		handleGet(*getDomain, *getName, *getBrowser, *getFormat, resolveExportMaxAge(*getCacheExpire))
 	case "list":
 		listCmd.Parse(os.Args[2:])
-		handleList(*listBrowser)
+		handleList(*listBrowser, resolveExportMaxAge(*listCacheExpire))
 	case "serve":
 		serveCmd.Parse(os.Args[2:])
 		handleServe(*servePort)
@@ -65,8 +94,8 @@ func printHelp() {
 	fmt.Println(`cookie-cli - 浏览器 Cookie 提取工具
 
 用法:
-  cookie-cli get -domain <域名> [-name <名称>] [-browser <浏览器>] [-format <格式>]
-  cookie-cli list [-browser <浏览器>]
+  cookie-cli get -domain <域名> [-name <名称>] [-browser <浏览器>] [-format <格式>] [-cache-expire <秒>]
+  cookie-cli list [-browser <浏览器>] [-cache-expire <秒>]
   cookie-cli serve [-port <端口>]
   cookie-cli export [-domain <域名>]
   cookie-cli native-messaging-host
@@ -98,6 +127,7 @@ Cookie 获取优先级 (Chrome/Edge):
   cookie-cli get -domain example.com                      # 获取 Cookie（自动选择最佳方式）
   cookie-cli get -domain example.com -name sid            # 获取特定 Cookie 值
   cookie-cli get -domain example.com -format header       # 输出为 Cookie 头格式
+  cookie-cli get -domain example.com -cache-expire 600   # export 回退文件最长 600 秒内有效
   cookie-cli list                                         # 列出所有域名
   cookie-cli export -domain example.com                   # 导出 Cookie 到本地文件
   cookie-cli serve                                        # 启动 Bridge 服务
@@ -129,7 +159,7 @@ func newStore(browser string) (cookie.Store, error) {
 	}
 }
 
-func handleGet(domain, name, browser, format string) {
+func handleGet(domain, name, browser, format string, exportMaxAge int) {
 	if browser == "" {
 		browser = os.Getenv("COOKIE_BROWSER")
 	}
@@ -155,7 +185,7 @@ func handleGet(domain, name, browser, format string) {
 		log.Printf("Bridge 服务不可用 (%v)，尝试导出文件", err)
 
 		// 优先级 3: 本地导出文件
-		exportCookies, err := native.ReadExportCookies(domain, 300)
+		exportCookies, err := native.ReadExportCookies(domain, exportMaxAge)
 		if err == nil {
 			printCookies(nativePairsToCookiePairs(exportCookies), name, format)
 			return
@@ -266,7 +296,7 @@ func getCookiesViaBridge(domain, name string) ([]cookiePair, error) {
 	return result.Cookies, nil
 }
 
-func handleList(browser string) {
+func handleList(browser string, exportMaxAge int) {
 	if browser == "" {
 		browser = os.Getenv("COOKIE_BROWSER")
 	}
@@ -296,7 +326,7 @@ func handleList(browser string) {
 		log.Printf("Bridge 服务不可用 (%v)，尝试导出文件", err)
 
 		// 优先级 3: 导出文件
-		domains, err = native.ReadExportDomains(300)
+		domains, err = native.ReadExportDomains(exportMaxAge)
 		if err == nil {
 			for _, d := range domains {
 				fmt.Println(d)

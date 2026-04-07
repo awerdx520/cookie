@@ -1,7 +1,7 @@
 ;;; restclient-cookie.el --- 从浏览器提取 Cookie 并与 restclient.el 集成 -*- lexical-binding: t; -*-
 
 ;; Author:
-;; Version: 0.5.0
+;; Version: 0.5.2
 ;; Keywords: restclient, chrome, firefox, edge, cookie, authentication
 ;; URL: https://github.com/thomas/cookie
 ;; Package-Requires: ((emacs "26.1"))
@@ -58,7 +58,11 @@
   :group 'restclient-cookie)
 
 (defcustom restclient-cookie-cache-expire 300
-  "Cookie 缓存过期时间（秒）。设为 0 禁用缓存。"
+  "Cookie 缓存过期时间（秒）。设为 0 禁用 Emacs 侧缓存。
+
+与 cookie-cli 对齐：`restclient-cookie--call-cli' 在调用 `cookie-cli get' 时，若本值大于 0，
+会追加命令行参数 `-cache-expire'，用于限制 ~/.cookie/export.json 回退文件的最大年龄（秒）；
+若为 0，则不传该参数，cookie-cli 沿用其默认（环境变量 COOKIE_CACHE_EXPIRE 或 300 秒）。"
   :type 'integer
   :group 'restclient-cookie)
 
@@ -86,18 +90,36 @@
     (puthash key (cons value (float-time)) restclient-cookie--cache))
   value)
 
+(defun restclient-cookie--cache-clear (&optional msg)
+  "清空哈希表 `restclient-cookie--cache'；若 MSG 非空则 `message' 显示。"
+  (clrhash restclient-cookie--cache)
+  (when msg (message "%s" msg)))
+
 (defun restclient-cookie-clear-cache ()
   "清除所有 Cookie 缓存。"
   (interactive)
-  (clrhash restclient-cookie--cache)
-  (message "Cookie 缓存已清除"))
+  (restclient-cookie--cache-clear "Cookie 缓存已清除"))
+
+;;;###autoload
+(defun restclient-cookie-refresh-cache ()
+  "丢弃全部缓存，下次获取将重新从浏览器拉取。
+适合在重新执行 restclient 请求前调用，以使用最新登录态。"
+  (interactive)
+  (restclient-cookie--cache-clear "Cookie 缓存已刷新，下次将从浏览器重新获取"))
 
 ;;; — CLI backend ————————————————————————————————————
 
 (defun restclient-cookie--call-cli (&rest args)
-  "调用 cookie-cli，传递 ARGS。返回 stdout（去除尾部换行）。出错时返回 nil。"
-  (let ((cmd (mapconcat #'shell-quote-argument
-                        (cons restclient-cookie-cli-path args) " ")))
+  "调用 cookie-cli，传递 ARGS。返回 stdout（去除尾部换行）。出错时返回 nil。
+对 `get' 子命令且 `restclient-cookie-cache-expire' 大于 0 时，自动追加 `-cache-expire'。"
+  (let* ((args (if (and (> restclient-cookie-cache-expire 0)
+                        (equal (car args) "get"))
+                   (append args
+                           (list "-cache-expire"
+                                 (number-to-string restclient-cookie-cache-expire)))
+                 args))
+         (cmd (mapconcat #'shell-quote-argument
+                         (cons restclient-cookie-cli-path args) " ")))
     (condition-case err
         (let ((output (string-trim-right (shell-command-to-string cmd))))
           (if (string-prefix-p "未找到" output)

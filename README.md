@@ -100,8 +100,8 @@ curl 'http://127.0.0.1:8008/health'
 ## 命令行参考
 
 ```bash
-cookie-cli get -domain <域名> [-name <名称>] [-browser <浏览器>] [-format <格式>]
-cookie-cli list [-browser <浏览器>]
+cookie-cli get -domain <域名> [-name <名称>] [-browser <浏览器>] [-format <格式>] [-cache-expire <秒>]
+cookie-cli list [-browser <浏览器>] [-cache-expire <秒>]
 cookie-cli serve [-port <端口>]
 cookie-cli export [-domain <域名>]
 cookie-cli native-messaging-host
@@ -121,6 +121,7 @@ cookie-cli native-messaging-host
 | `-name` | — | Cookie 名称（省略则返回该域名所有 Cookie） |
 | `-browser` | `chrome` | 浏览器类型：`chrome`、`firefox`、`edge` |
 | `-format` | — | 输出格式：`header`（Cookie 头格式）、`json`（JSON 数组） |
+| `-cache-expire` | `-1`（未传参） | 仅 `get` / `list`：使用 `~/.cookie/export.json` 回退时的最大文件年龄（秒）。`-1` 表示沿用 `COOKIE_CACHE_EXPIRE` 环境变量或默认 `300`；`0` 表示不限制。**优先级：命令行高于环境变量** |
 | `-port` | `8008` | Bridge 服务监听端口 |
 
 ### 输出格式
@@ -150,6 +151,7 @@ cookie-cli get -domain example.com -name sessionid
 |------|------|
 | `COOKIE_BROWSER` | 默认浏览器类型 |
 | `COOKIE_PORT` | Bridge 服务端口（CLI 连接时使用） |
+| `COOKIE_CACHE_EXPIRE` | 使用 `~/.cookie/export.json` 回退时的最大文件年龄（秒），默认 `300`；设为 `0` 表示不限制。若未传 `-cache-expire`，则使用该变量 |
 
 ## HTTP API
 
@@ -221,6 +223,8 @@ curl 'http://127.0.0.1:8008/cookies?domain=example.com&format=raw'
 ## Emacs 集成
 
 项目提供 `elisp/restclient-cookie.el`，可与 [restclient.el](https://github.com/pashky/restclient.el) 集成，在 HTTP 请求中自动注入 Cookie。详细配置和用法参见该文件头部注释。
+
+重放请求前若需最新 Cookie，可 `M-x restclient-cookie-refresh-cache`（或 `restclient-cookie-clear-cache`）清除 Emacs 缓存；`restclient-cookie-cache-expire` 大于 0 时，包内调用 `cookie-cli get` 会自动带上 `-cache-expire`，与 CLI 行为对齐。
 
 ## Cookie 获取策略
 

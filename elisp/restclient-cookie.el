@@ -111,20 +111,30 @@
 
 (defun restclient-cookie--call-cli (&rest args)
   "调用 cookie-cli，传递 ARGS。返回 stdout（去除尾部换行）。出错时返回 nil。
-对 `get' 子命令且 `restclient-cookie-cache-expire' 大于 0 时，自动追加 `-cache-expire'。"
+对 `get' 子命令且 `restclient-cookie-cache-expire' 大于 0 时，自动追加 `-cache-expire'。
+
+使用 `call-process' 且丢弃 stderr：避免 `shell-command-to-string' 合并 stderr 时，
+cookie-cli 的诊断日志（如 `log.Printf'）污染 Cookie 头内容。"
   (let* ((args (if (and (> restclient-cookie-cache-expire 0)
                         (equal (car args) "get"))
                    (append args
                            (list "-cache-expire"
                                  (number-to-string restclient-cookie-cache-expire)))
                  args))
-         (cmd (mapconcat #'shell-quote-argument
-                         (cons restclient-cookie-cli-path args) " ")))
+         (program (if (file-name-absolute-p restclient-cookie-cli-path)
+                      restclient-cookie-cli-path
+                    (or (executable-find restclient-cookie-cli-path)
+                        restclient-cookie-cli-path))))
     (condition-case err
-        (let ((output (string-trim-right (shell-command-to-string cmd))))
-          (if (string-prefix-p "未找到" output)
-              nil
-            output))
+        (with-temp-buffer
+          (let ((exit (apply #'call-process
+                             program nil (list (current-buffer) nil) nil args)))
+            (if (zerop exit)
+                (let ((output (string-trim-right (buffer-string))))
+                  (if (string-prefix-p "未找到" output)
+                      nil
+                    output))
+              nil)))
       (error
        (message "cookie-cli 调用失败: %s" (error-message-string err))
        nil))))

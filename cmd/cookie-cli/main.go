@@ -100,6 +100,8 @@ func main() {
 		if err := native.UninstallHost(); err != nil {
 			log.Fatalf("卸载 Native Messaging Host 失败: %v", err)
 		}
+	case "copy":
+		handleCopy()
 	case "doctor":
 		doctorCmd.Parse(os.Args[2:])
 		handleDoctor(*doctorBrowser)
@@ -127,6 +129,7 @@ func printHelp() {
   native-messaging-host   作为 Chrome Native Messaging Host 运行（由扩展自动启动）
   native-install           注册 Native Messaging Host（自动检测 WSL2）
   native-uninstall         移除 Native Messaging Host 注册
+  copy                    复制 Cookie Bridge 扩展到目标目录
   doctor                   诊断所有 Cookie 获取模式
 
 浏览器:
@@ -155,6 +158,7 @@ Cookie 获取优先级 (Chrome/Edge):
   cookie-cli serve                                        # 启动 Bridge 服务
   cookie-cli native-install                          # 注册 Native Messaging Host
   cookie-cli doctor                                  # 诊断各模式是否可用
+  cookie-cli copy                                     # 复制扩展（替代 make ext-copy）
 
 HTTP API (serve 模式):
   curl 'http://127.0.0.1:8008/cookies?domain=example.com'

@@ -46,7 +46,8 @@ go build -o cookie-cli ./cmd/cookie-cli
 
 ```bash
 # WSL2 用户: 复制扩展到 Windows 目录
-make ext-copy
+cookie-cli copy
+# 或 make ext-copy
 ```
 
 然后在 Chrome 中加载扩展：
@@ -58,7 +59,7 @@ make ext-copy
 
 ### 3. 选择通信模式
 
-**扩展加载方式**：扩展加载完全手动。先运行 `make ext-copy` 复制扩展到 Windows 目录，再在 `chrome://extensions` 开启开发者模式并点击 **加载已解压的扩展程序**，选择 `C:\Users\<用户名>\cookie-bridge-extension` 目录。
+**扩展加载方式**：扩展加载完全手动。先运行 `cookie-cli copy`（或 make ext-copy）复制扩展到 Windows 目录，再在 `chrome://extensions` 开启开发者模式并点击 **加载已解压的扩展程序**，选择 `C:\Users\<用户名>\cookie-bridge-extension` 目录。
 
 **方式 A：Native Messaging（推荐，无需常驻进程）**
 
@@ -110,6 +111,7 @@ cookie-cli native-messaging-host
 cookie-cli native-install
 cookie-cli native-uninstall
 cookie-cli doctor [-browser <浏览器>]
+cookie-cli copy
 ```
 
 | 子命令 | 说明 |
@@ -122,6 +124,7 @@ cookie-cli doctor [-browser <浏览器>]
 | `native-install` | 注册 Native Messaging Host（自动检测 WSL2，Chrome 在 Windows 时注册 Windows 注册表） |
 | `native-uninstall` | 移除 Native Messaging Host 注册 |
 | `doctor` | 诊断所有 Cookie 获取模式（Native Messaging / Bridge HTTP / 文件导出 / SQLite 直读 / 扩展 ID） |
+| `copy` | 复制 Cookie Bridge 扩展到目标目录（WSL2 下 Windows 家目录 / Linux 家目录，替代 make ext-copy） |
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|

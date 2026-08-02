@@ -22,3 +22,4 @@
 - 明确流程边界：`cookie-cli native-install` 只自动注册 NativeMessagingHosts 并填充扩展 ID，不自动安装/复制扩展（扩展由用户手动加载：make ext-copy + chrome://extensions，或 `cookie-cli chrome` 启动）
 - 移除 `cookie-cli chrome` 子命令（扩展加载改为纯手动：make ext-copy + chrome://extensions）
 - 新增 `cookie-cli copy`：一键复制 Cookie Bridge 扩展到目标目录（替代 make ext-copy）
+- `cookie-cli copy` 支持 `-target windows|linux` 显式指定复制目标平台（默认 auto）

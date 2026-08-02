@@ -17,16 +17,23 @@ var extensionFiles = []string{
 	"offscreen.js",
 }
 
+// target 值：auto / windows / linux
+const (
+	targetAuto    = "auto"
+	targetWindows = "windows"
+	targetLinux   = "linux"
+)
+
 // handleCopy 将 Cookie Bridge 扩展复制到目标目录。
 // 源：系统扩展目录 /usr/share/cookie-cli/extension 或仓库 extension/；
-// 目标：WSL2 下 C:\Users\<user>\cookie-bridge-extension，Linux 下 ~/cookie-bridge-extension。
-func handleCopy() {
+// 目标：由 target 决定（auto 自动检测 / windows / linux）。
+func handleCopy(target string) {
 	srcDir := locateExtensionSource()
 	if srcDir == "" {
 		log.Fatal("未找到扩展源（系统目录或仓库 extension/）")
 	}
 
-	dstDir, err := resolveExtensionTarget()
+	dstDir, err := resolveExtensionTarget(target)
 	if err != nil {
 		log.Fatalf("定位扩展目标目录失败: %v", err)
 	}
@@ -69,17 +76,42 @@ func isExtensionDir(dir string) bool {
 	return err == nil
 }
 
-// resolveExtensionTarget 返回扩展的目标目录（WSL 路径格式）。
-// WSL2 下为 /mnt/c/Users/<user>/cookie-bridge-extension（经 cmd.exe 取 %USERPROFILE%）；
-// Linux 下为 ~/cookie-bridge-extension。
-func resolveExtensionTarget() (string, error) {
-	if isWSL2() {
-		winHome, err := wsl2WindowsHome()
-		if err != nil {
-			return "", fmt.Errorf("获取 Windows 用户目录失败: %w", err)
+// resolveExtensionTarget 根据 target 返回扩展的目标目录（WSL 路径格式）。
+//   - auto（默认）：WSL2 下返回 Windows 侧目标，否则 Linux 侧目标
+//   - windows：仅 WSL2 环境可用，返回 Windows 侧目标
+//   - linux：强制返回 Linux 侧目标（即使当前是 WSL2）
+//   - 其他值：返回错误
+func resolveExtensionTarget(target string) (string, error) {
+	switch target {
+	case targetAuto:
+		if isWSL2() {
+			return windowsTargetDir()
 		}
-		return filepath.Join(winHome, "cookie-bridge-extension"), nil
+		return linuxTargetDir()
+	case targetWindows:
+		if !isWSL2() {
+			return "", fmt.Errorf("windows 目标仅支持 WSL2 环境（当前非 WSL2）")
+		}
+		return windowsTargetDir()
+	case targetLinux:
+		return linuxTargetDir()
+	default:
+		return "", fmt.Errorf("无效的 -target 值: %s（可选 auto/windows/linux）", target)
 	}
+}
+
+// windowsTargetDir 返回 Windows 侧扩展目标目录（WSL 路径格式，
+// 经 cmd.exe 取 %USERPROFILE% 跟随系统），即 /mnt/c/Users/<user>/cookie-bridge-extension。
+func windowsTargetDir() (string, error) {
+	winHome, err := wsl2WindowsHome()
+	if err != nil {
+		return "", fmt.Errorf("获取 Windows 用户目录失败: %w", err)
+	}
+	return filepath.Join(winHome, "cookie-bridge-extension"), nil
+}
+
+// linuxTargetDir 返回 Linux 侧扩展目标目录，即 ~/cookie-bridge-extension。
+func linuxTargetDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("获取用户家目录失败: %w", err)

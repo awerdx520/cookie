@@ -47,6 +47,8 @@ go build -o cookie-cli ./cmd/cookie-cli
 ```bash
 # WSL2 用户: 复制扩展到 Windows 目录
 cookie-cli copy
+# 显式指定目标平台（默认 auto：WSL2→Windows 侧，否则 Linux 家目录）
+cookie-cli copy -target windows
 # 或 make ext-copy
 ```
 
@@ -111,7 +113,7 @@ cookie-cli native-messaging-host
 cookie-cli native-install
 cookie-cli native-uninstall
 cookie-cli doctor [-browser <浏览器>]
-cookie-cli copy
+cookie-cli copy [-target <平台>]
 ```
 
 | 子命令 | 说明 |
@@ -124,7 +126,7 @@ cookie-cli copy
 | `native-install` | 注册 Native Messaging Host（自动检测 WSL2，Chrome 在 Windows 时注册 Windows 注册表） |
 | `native-uninstall` | 移除 Native Messaging Host 注册 |
 | `doctor` | 诊断所有 Cookie 获取模式（Native Messaging / Bridge HTTP / 文件导出 / SQLite 直读 / 扩展 ID） |
-| `copy` | 复制 Cookie Bridge 扩展到目标目录（WSL2 下 Windows 家目录 / Linux 家目录，替代 make ext-copy） |
+| `copy` | 复制 Cookie Bridge 扩展到目标目录（WSL2 下 Windows 家目录 / Linux 家目录，`-target` 可指定 windows/linux（默认 auto）） |
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|

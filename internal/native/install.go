@@ -85,7 +85,7 @@ func execWSL(name string, args ...string) (string, error) {
 
 // InstallHost 注册 Native Messaging Host（自动检测 WSL2）。
 // 扩展 ID 通过三级策略解析：已加载检测 → 预计算 → 占位符；
-// 解析成功后自动注册外部扩展（Chrome 重启后自动加载）。
+// 解析成功后提示使用 cookie-cli chrome 启动器加载扩展。
 // 返回错误时上层负责 log.Fatalf。
 func InstallHost() error {
 	binary, err := os.Executable()
@@ -100,8 +100,8 @@ func InstallHost() error {
 		fmt.Println("将使用占位符，安装后请手动替换。")
 	} else {
 		fmt.Printf("%s扩展 ID: %s\n", source, extID)
-		// 自动注册外部扩展（ID 非占位符且扩展目录存在时）
-		autoInstallExtension(extID)
+		// 提示扩展加载方式（不再写入 External Extensions 注册表/JSON，该机制不支持未打包目录）
+		notifyExtensionLoading(extID)
 	}
 
 	if isWSL2() {
@@ -181,41 +181,20 @@ func resolveExtensionID() (string, string) {
 	return extensionIDPlaceholder, "未自动检测到扩展 ID，且未找到扩展目录（请先复制扩展: make ext-copy）"
 }
 
-// autoInstallExtension 通过 Chrome External Extensions 机制自动注册未打包扩展。
-// WSL2 下写注册表 HKCU\Software\Google\Chrome\Extensions\<id> 的 path 值（官方机制），
-// Linux 下写 ~/.config/google-chrome/External Extensions/<id>.json。
-// 扩展目录不存在时跳过并提示。
-func autoInstallExtension(extID string) {
+// notifyExtensionLoading 提示用户通过 cookie-cli chrome 启动器加载扩展。
+// 原 External Extensions 机制（WSL2 注册表 HKCU\Software\Google\Chrome\Extensions\<id>
+// 的 path 值、Linux External Extensions JSON）不支持未打包目录：Chromium 源码
+// external_registry_loader_win.cc 中 path 值须指向 .crx 文件，CanOpenFileForReading()
+// 对目录返回 false，故注册不生效。改为 --load-extension 启动器方式。
+// 扩展目录不存在时提示先复制。
+func notifyExtensionLoading(extID string) {
 	dirs := extensionDirCandidates()
 	if len(dirs) == 0 {
 		fmt.Println("提示: 未找到扩展目录，请先复制扩展（make ext-copy）")
 		return
 	}
-	dir := dirs[0]
-
-	if isWSL2() {
-		regKey := `HKCU\Software\Google\Chrome\Extensions\` + extID
-		if _, err := execWSL("reg.exe", "ADD", regKey, "/v", "path", "/t", "REG_SZ", "/d", dir.winPath, "/f"); err != nil {
-			fmt.Printf("警告: 注册外部扩展失败: %v\n", err)
-			return
-		}
-		fmt.Printf("已注册外部扩展 %s，Chrome 重启后自动加载\n", extID)
-		return
-	}
-
-	// Linux: 写入 External Extensions JSON（0600 权限，内容仅含扩展目录路径）
-	extDir := filepath.Join(os.Getenv("HOME"), ".config", "google-chrome", "External Extensions")
-	if err := os.MkdirAll(extDir, 0755); err != nil {
-		fmt.Printf("警告: 创建 External Extensions 目录失败: %v\n", err)
-		return
-	}
-	jsonFile := filepath.Join(extDir, extID+".json")
-	content := []byte(fmt.Sprintf(`{"path": "%s"}`, dir.wslPath))
-	if err := os.WriteFile(jsonFile, content, 0600); err != nil {
-		fmt.Printf("警告: 写入扩展注册文件失败: %v\n", err)
-		return
-	}
-	fmt.Printf("已注册外部扩展 %s，Chrome 重启后自动加载\n", extID)
+	fmt.Println("扩展已就绪：运行 `cookie-cli chrome` 启动 Chrome 时自动加载扩展")
+	fmt.Println("（External Extensions 注册表/JSON 不支持未打包目录，故采用 --load-extension 启动器方式）")
 }
 
 // UninstallHost 移除 Native Messaging Host 注册。

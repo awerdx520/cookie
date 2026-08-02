@@ -58,6 +58,8 @@ make ext-copy
 
 ### 3. 选择通信模式
 
+**扩展加载方式**：运行 `cookie-cli chrome` 启动 Chrome 时自动加载扩展（`--load-extension`）；或手动在 `chrome://extensions` 加载一次。
+
 **方式 A：Native Messaging（推荐，无需常驻进程）**
 
 ```bash
@@ -107,6 +109,7 @@ cookie-cli export [-domain <域名>]
 cookie-cli native-messaging-host
 cookie-cli native-install
 cookie-cli native-uninstall
+cookie-cli chrome [-dry-run]
 cookie-cli doctor [-browser <浏览器>]
 ```
 
@@ -119,6 +122,7 @@ cookie-cli doctor [-browser <浏览器>]
 | `native-messaging-host` | 作为 Chrome Native Messaging Host 运行（由扩展自动启动） |
 | `native-install` | 注册 Native Messaging Host（自动检测 WSL2，Chrome 在 Windows 时注册 Windows 注册表） |
 | `native-uninstall` | 移除 Native Messaging Host 注册 |
+| `chrome` | 启动 Chrome 并自动加载 Cookie Bridge 扩展（`--load-extension`） |
 | `doctor` | 诊断所有 Cookie 获取模式（Native Messaging / Bridge HTTP / 文件导出 / SQLite 直读 / 扩展 ID） |
 
 | 参数 | 默认值 | 说明 |

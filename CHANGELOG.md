@@ -18,3 +18,4 @@
 - 修复：AUR 打包脚本 `cookie-native-install` 增加 WSL2 分支（.bat 启动器 + Windows 注册表 HKCU 注册），新增 `cookie-native-uninstall` 卸载脚本
 - 新增 `cookie-cli native-install` / `native-uninstall`（Native Messaging Host 注册/移除，自动检测 WSL2）
 - 新增 `cookie-cli doctor`（诊断 Native Messaging / Bridge HTTP / 文件导出 / SQLite 直读 / 扩展 ID 五模式）
+- 修正扩展自动加载：新增 `cookie-cli chrome` 启动器（`--load-extension`），移除无效的 External Extensions 注册表/JSON 写入

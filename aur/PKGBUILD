@@ -1,8 +1,8 @@
 # Maintainer: awerdx520 <awerdx520@github>
 pkgname=cookie-cli-git
-pkgver=r5.b245f28
+pkgver=r9.0f11f8f
 pkgrel=1
-pkgdesc='Extract browser cookies and integrate with Emacs restclient.el'
+pkgdesc='Extract browser cookies and integrate with Emacs restclient.el / org-verb (verb.el)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/awerdx520/cookie'
 license=('MIT')
@@ -35,7 +35,7 @@ package() {
     cd "$pkgname"
     install -Dm755 cookie-cli "$pkgdir/usr/bin/cookie-cli"
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
-    install -Dm644 elisp/restclient-cookie.el "$pkgdir/usr/share/emacs/site-lisp/restclient-cookie.el"
+    install -Dm644 elisp/cookie.el "$pkgdir/usr/share/emacs/site-lisp/cookie.el"
 
     # Native Messaging Host manifest template
     install -Dm644 /dev/stdin "$pkgdir/usr/lib/cookie-cli/native-messaging/com.cookie.bridge.json" <<EOF
@@ -54,17 +54,98 @@ EOF
 set -euo pipefail
 NM_HOST_NAME="com.cookie.bridge"
 TEMPLATE="/usr/lib/cookie-cli/native-messaging/$NM_HOST_NAME.json"
+BINARY="/usr/bin/cookie-cli"
 
-for dir in \
-    "$HOME/.config/google-chrome/NativeMessagingHosts" \
-    "$HOME/.config/chromium/NativeMessagingHosts"; do
-    mkdir -p "$dir"
-    cp "$TEMPLATE" "$dir/$NM_HOST_NAME.json"
-done
+if [ ! -x "$BINARY" ]; then
+    echo "错误: 找不到 $BINARY"
+    exit 1
+fi
 
-echo "Native Messaging Host manifest installed."
-echo "Edit the manifest files to replace EXTENSION_ID_HERE with your extension ID."
-echo "  Chrome:    ~/.config/google-chrome/NativeMessagingHosts/$NM_HOST_NAME.json"
-echo "  Chromium:  ~/.config/chromium/NativeMessagingHosts/$NM_HOST_NAME.json"
+if [ -d /mnt/c/Windows ]; then
+    # ── WSL2 环境（Chrome 在 Windows）──
+    WIN_PROFILE=$(/mnt/c/Windows/System32/cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r\n')
+    # C:\Users\WPS -> /mnt/c/Users/WPS
+    WIN_HOME=$(echo "$WIN_PROFILE" | sed 's|\\|/|g; s|^\([A-Za-z]\):|/mnt/\L\1|')
+
+    NM_DIR="$WIN_HOME/.cookie/native-messaging"
+
+    echo "检测到 WSL2 环境（Chrome 在 Windows）"
+    echo "  Windows 家目录: $WIN_HOME"
+    echo "  Binary: $BINARY"
+
+    mkdir -p "$NM_DIR"
+
+    # 创建 .bat 启动器：Windows Chrome 通过 wsl.exe 启动 WSL2 中的 cookie-cli
+    BAT_FILE="$NM_DIR/$NM_HOST_NAME.bat"
+    printf '@echo off\r\nwsl.exe -- "%s" native-messaging-host\r\n' "$BINARY" > "$BAT_FILE"
+
+    # manifest 的 path 必须是 Windows 可执行路径（指向 .bat）
+    WIN_BAT=$(wslpath -w "$BAT_FILE" | sed 's|\\|\\\\|g')
+
+    # 生成 manifest（重新生成而非 cp 模板，因为 path 不同）
+    JSON_FILE="$NM_DIR/$NM_HOST_NAME.json"
+    cat > "$JSON_FILE" <<NMEOF
+{
+  "name": "$NM_HOST_NAME",
+  "description": "Cookie Bridge Native Messaging Host",
+  "path": "$WIN_BAT",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://EXTENSION_ID_HERE/"]
+}
+NMEOF
+
+    # 注册到 Windows 注册表（Windows Chrome 读取此位置）
+    WIN_JSON=$(wslpath -w "$JSON_FILE")
+    /mnt/c/Windows/System32/reg.exe ADD \
+        "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\$NM_HOST_NAME" \
+        /ve /t REG_SZ /d "$WIN_JSON" /f
+
+    echo ""
+    echo "Native Messaging Host 已注册（WSL2）"
+    echo "  Manifest: $JSON_FILE"
+    echo "  Launcher: $BAT_FILE"
+    echo ""
+    echo "重要: 请编辑 $JSON_FILE"
+    echo "将 EXTENSION_ID_HERE 替换为你的扩展 ID（chrome://extensions 查看）"
+else
+    # ── 原生 Linux 环境 ──
+    for dir in \
+        "$HOME/.config/google-chrome/NativeMessagingHosts" \
+        "$HOME/.config/chromium/NativeMessagingHosts"; do
+        mkdir -p "$dir"
+        cp "$TEMPLATE" "$dir/$NM_HOST_NAME.json"
+    done
+
+    echo "Native Messaging Host 已注册"
+    echo "  Chrome:    $HOME/.config/google-chrome/NativeMessagingHosts/$NM_HOST_NAME.json"
+    echo "  Chromium:  $HOME/.config/chromium/NativeMessagingHosts/$NM_HOST_NAME.json"
+    echo ""
+    echo "重要: 请编辑这些文件"
+    echo "将 EXTENSION_ID_HERE 替换为你的扩展 ID（chrome://extensions 查看）"
+fi
+SCRIPT
+
+    # Uninstall script to remove native messaging host registration
+    install -Dm755 /dev/stdin "$pkgdir/usr/bin/cookie-native-uninstall" <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+NM_HOST_NAME="com.cookie.bridge"
+
+if [ -d /mnt/c/Windows ]; then
+    # WSL2：删除注册表项与 manifest/启动器文件
+    WIN_PROFILE=$(/mnt/c/Windows/System32/cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r\n')
+    WIN_HOME=$(echo "$WIN_PROFILE" | sed 's|\\|/|g; s|^\([A-Za-z]\):|/mnt/\L\1|')
+    NM_DIR="$WIN_HOME/.cookie/native-messaging"
+
+    /mnt/c/Windows/System32/reg.exe DELETE \
+        "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\$NM_HOST_NAME" /f 2>/dev/null || true
+    rm -f "$NM_DIR/$NM_HOST_NAME.json" "$NM_DIR/$NM_HOST_NAME.bat"
+    echo "Native Messaging Host 已移除（WSL2）"
+else
+    rm -f \
+        "$HOME/.config/google-chrome/NativeMessagingHosts/$NM_HOST_NAME.json" \
+        "$HOME/.config/chromium/NativeMessagingHosts/$NM_HOST_NAME.json"
+    echo "Native Messaging Host 已移除"
+fi
 SCRIPT
 }

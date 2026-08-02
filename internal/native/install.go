@@ -119,7 +119,7 @@ type extDirCandidate struct {
 }
 
 // extensionDirCandidates 返回当前实际存在的 Cookie Bridge 扩展目录候选，
-// 供扩展 ID 预计算与自动安装使用。
+// 供扩展 ID 预计算使用（不执行任何复制/安装操作）。
 // WSL2 下优先用 %USERPROFILE% 定位（复用 execWSL），再以 /mnt/c/Users/<user> 兜底；
 // Linux 下取 $HOME/cookie-bridge-extension。
 func extensionDirCandidates() []extDirCandidate {
@@ -181,20 +181,21 @@ func resolveExtensionID() (string, string) {
 	return extensionIDPlaceholder, "未自动检测到扩展 ID，且未找到扩展目录（请先复制扩展: make ext-copy）"
 }
 
-// notifyExtensionLoading 提示用户通过 cookie-cli chrome 启动器加载扩展。
-// 原 External Extensions 机制（WSL2 注册表 HKCU\Software\Google\Chrome\Extensions\<id>
-// 的 path 值、Linux External Extensions JSON）不支持未打包目录：Chromium 源码
-// external_registry_loader_win.cc 中 path 值须指向 .crx 文件，CanOpenFileForReading()
-// 对目录返回 false，故注册不生效。改为 --load-extension 启动器方式。
+// notifyExtensionLoading 打印扩展加载提示（仅提示，不执行任何安装/复制操作）。
+// native-install 只负责自动注册 NativeMessagingHosts 并填充扩展 ID，
+// 扩展本身由用户手动加载：make ext-copy 复制后 chrome://extensions 加载，
+// 或通过 cookie-cli chrome 启动器 --load-extension 加载。
 // 扩展目录不存在时提示先复制。
 func notifyExtensionLoading(extID string) {
 	dirs := extensionDirCandidates()
 	if len(dirs) == 0 {
-		fmt.Println("提示: 未找到扩展目录，请先复制扩展（make ext-copy）")
+		fmt.Println("提示: 未找到扩展目录，请先复制扩展（make ext-copy 或手动复制到目标目录）")
 		return
 	}
-	fmt.Println("扩展已就绪：运行 `cookie-cli chrome` 启动 Chrome 时自动加载扩展")
-	fmt.Println("（External Extensions 注册表/JSON 不支持未打包目录，故采用 --load-extension 启动器方式）")
+	fmt.Printf("扩展 ID 已自动检测/预计算: %s\n", extID)
+	fmt.Println("扩展加载方式（任选）：")
+	fmt.Println("  ① make ext-copy 复制到 Windows 后，在 chrome://extensions 加载已解压扩展")
+	fmt.Println("  ② cookie-cli chrome 启动 Chrome，自动 --load-extension")
 }
 
 // UninstallHost 移除 Native Messaging Host 注册。

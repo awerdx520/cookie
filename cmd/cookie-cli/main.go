@@ -63,9 +63,6 @@ func main() {
 	nativeInstallCmd := flag.NewFlagSet("native-install", flag.ExitOnError)
 	nativeUninstallCmd := flag.NewFlagSet("native-uninstall", flag.ExitOnError)
 
-	chromeCmd := flag.NewFlagSet("chrome", flag.ExitOnError)
-	chromeDryRun := chromeCmd.Bool("dry-run", false, "仅打印将执行的启动命令，不实际启动")
-
 	doctorCmd := flag.NewFlagSet("doctor", flag.ExitOnError)
 	doctorBrowser := doctorCmd.String("browser", "", "浏览器类型: chrome, firefox, edge（默认 chrome）")
 
@@ -103,9 +100,6 @@ func main() {
 		if err := native.UninstallHost(); err != nil {
 			log.Fatalf("卸载 Native Messaging Host 失败: %v", err)
 		}
-	case "chrome":
-		chromeCmd.Parse(os.Args[2:])
-		handleChrome(*chromeDryRun)
 	case "doctor":
 		doctorCmd.Parse(os.Args[2:])
 		handleDoctor(*doctorBrowser)
@@ -124,7 +118,6 @@ func printHelp() {
   cookie-cli serve [-port <端口>]
   cookie-cli export [-domain <域名>]
   cookie-cli native-messaging-host
-  cookie-cli chrome [-dry-run]
 
 子命令:
   get                     获取指定域名的 Cookie
@@ -134,7 +127,6 @@ func printHelp() {
   native-messaging-host   作为 Chrome Native Messaging Host 运行（由扩展自动启动）
   native-install           注册 Native Messaging Host（自动检测 WSL2）
   native-uninstall         移除 Native Messaging Host 注册
-  chrome                   启动 Chrome 并自动加载 Cookie Bridge 扩展
   doctor                   诊断所有 Cookie 获取模式
 
 浏览器:
@@ -162,7 +154,6 @@ Cookie 获取优先级 (Chrome/Edge):
   cookie-cli export -domain example.com                   # 导出 Cookie 到本地文件
   cookie-cli serve                                        # 启动 Bridge 服务
   cookie-cli native-install                          # 注册 Native Messaging Host
-  cookie-cli chrome                                  # 启动 Chrome（自动加载扩展）
   cookie-cli doctor                                  # 诊断各模式是否可用
 
 HTTP API (serve 模式):

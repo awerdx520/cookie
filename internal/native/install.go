@@ -85,7 +85,7 @@ func execWSL(name string, args ...string) (string, error) {
 
 // InstallHost 注册 Native Messaging Host（自动检测 WSL2）。
 // 扩展 ID 通过三级策略解析：已加载检测 → 预计算 → 占位符；
-// 解析成功后提示使用 cookie-cli chrome 启动器加载扩展。
+// 解析成功后提示手动加载扩展（make ext-copy + chrome://extensions）。
 // 返回错误时上层负责 log.Fatalf。
 func InstallHost() error {
 	binary, err := os.Executable()
@@ -183,9 +183,8 @@ func resolveExtensionID() (string, string) {
 
 // notifyExtensionLoading 打印扩展加载提示（仅提示，不执行任何安装/复制操作）。
 // native-install 只负责自动注册 NativeMessagingHosts 并填充扩展 ID，
-// 扩展本身由用户手动加载：make ext-copy 复制后 chrome://extensions 加载，
-// 或通过 cookie-cli chrome 启动器 --load-extension 加载。
-// 扩展目录不存在时提示先复制。
+// 扩展本身由用户手动加载：make ext-copy 复制后，在 chrome://extensions
+// 开启开发者模式并「加载已解压的扩展程序」。扩展目录不存在时提示先复制。
 func notifyExtensionLoading(extID string) {
 	dirs := extensionDirCandidates()
 	if len(dirs) == 0 {
@@ -193,9 +192,7 @@ func notifyExtensionLoading(extID string) {
 		return
 	}
 	fmt.Printf("扩展 ID 已自动检测/预计算: %s\n", extID)
-	fmt.Println("扩展加载方式（任选）：")
-	fmt.Println("  ① make ext-copy 复制到 Windows 后，在 chrome://extensions 加载已解压扩展")
-	fmt.Println("  ② cookie-cli chrome 启动 Chrome，自动 --load-extension")
+	fmt.Println("扩展加载方式: 将扩展复制到目标目录后，在 chrome://extensions 开启开发者模式并「加载已解压的扩展程序」")
 }
 
 // UninstallHost 移除 Native Messaging Host 注册。

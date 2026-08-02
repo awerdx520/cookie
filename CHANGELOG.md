@@ -20,3 +20,4 @@
 - 新增 `cookie-cli doctor`（诊断 Native Messaging / Bridge HTTP / 文件导出 / SQLite 直读 / 扩展 ID 五模式）
 - 修正扩展自动加载：新增 `cookie-cli chrome` 启动器（`--load-extension`），移除无效的 External Extensions 注册表/JSON 写入
 - 明确流程边界：`cookie-cli native-install` 只自动注册 NativeMessagingHosts 并填充扩展 ID，不自动安装/复制扩展（扩展由用户手动加载：make ext-copy + chrome://extensions，或 `cookie-cli chrome` 启动）
+- 移除 `cookie-cli chrome` 子命令（扩展加载改为纯手动：make ext-copy + chrome://extensions）

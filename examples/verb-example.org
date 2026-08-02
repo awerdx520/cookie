@@ -24,3 +24,31 @@
 
 :GET https://api.example.com/submit
 :header Cookie: session={{(cookie-http-get "api.example.com" "sessionid")}}
+
+* 方法四：自动注入 Cookie 头（cookie-request-hook）
+
+通过 :Verb-Map-Request: 属性挂载 cookie-request-hook，发送时自动从
+请求 URL 提取 domain 并追加 Cookie 头，无需手动编写 :header:
+
+** Endpoint            :verb:
+:PROPERTIES:
+:Verb-Map-Request: cookie-request-hook
+:END:
+GET /user
+
+* 方法五：Org 源块 JSON helpers 构造请求体
+
+用 #+name: 标记 json 源块，发送时通过 cookie-json-block-to-string
+将源块内容序列化为请求体（:body 中的 {{...}} 会在发送时求值）：
+
+#+name: payload
+#+begin_src json
+{"name": "test"}
+#+end_src
+
+** POST            :verb:
+:PROPERTIES:
+:END:
+POST /api/items
+:header Content-Type: application/json
+:body {{(cookie-json-block-to-string "payload")}}

@@ -42,6 +42,22 @@
 ;;     :GET https://api.example.com/user
 ;;     :header Authorization: Bearer {{(cookie-get-value "api.example.com" "auth_token")}}
 ;;
+;;   cookie-request-hook 可挂载到 :Verb-Map-Request: 属性，请求发送时
+;;   自动从 URL 提取 domain 并注入 Cookie 头（无需手动调用）：
+;;
+;;     :Verb-Map-Request: cookie-request-hook
+;;
+;;   cookie-json-block-* 用于读取 Org 源块中的 JSON（构造请求体）：
+;;
+;;     #+name: payload
+;;     #+begin_src json
+;;     {"a": 1}
+;;     #+end_src
+;;
+;;     :POST https://api.example.com/data
+;;     :Content-Type: application/json
+;;     :body {{(cookie-json-block-to-string "payload")}}
+;;
 ;;   verb 中不要使用 `{{cookie:...}}' 占位符语法（那是 restclient 专用），
 ;;   verb 会把 `{{...}}' 当作 elisp 表达式求值而报错。
 
@@ -320,6 +336,44 @@ BROWSER 指定浏览器类型，nil 使用 `cookie-default-browser'。
             (restclient-remove-var var-name)
           (restclient-set-var var-name value)))))
   (message "Cookie 变量已更新"))
+
+;;; — verb.el 集成 —————————————————————————————————
+
+(defun cookie-request-hook (rs)
+  "Verb-Map-Request 钩子函数：从请求 URL 提取 DOMAIN，自动注入 Cookie 头。
+适用于 :Verb-Map-Request: 属性，自动完成浏览器 Cookie 注入。"
+  (require 'url-parse)
+  (let* ((url-str (oref rs url))
+         (url-obj (url-generic-parse-url url-str))
+         (host (url-host url-obj))
+         (cookie-val (cookie-header host)))
+    (unless (string-empty-p cookie-val)
+      (oset rs headers
+            (append (oref rs headers)
+                    (list (cons "Cookie" cookie-val)))))
+    rs))
+
+(defun cookie-json-block-body (src-block-name)
+  "返回当前 buffer 中 #+name: SRC-BLOCK-NAME 对应源块的正文字符串。
+找不到块时 signal `error'。"
+  (require 'ob-core)
+  (let ((loc (org-babel-find-named-block src-block-name)))
+    (unless loc
+      (error "cookie: 未找到名为 %s 的 Org 源块" src-block-name))
+    (save-excursion
+      (goto-char loc)
+      (org-element-property :value (org-element-at-point)))))
+
+(defun cookie-json-block-to-alist (src-block-name)
+  "将 #+name: SRC-BLOCK-NAME 的 json 源块解析为 alist（不执行 Babel）。
+JSON 对象解析为 alist，数组解析为 list。"
+  (let ((json-object-type 'alist)
+        (json-array-type 'list))
+    (json-read-from-string (cookie-json-block-body src-block-name))))
+
+(defun cookie-json-block-to-string (src-block-name)
+  "将 #+name: SRC-BLOCK-NAME 的 json 源块序列化为 JSON 字符串字面量。"
+  (prin1-to-string (json-encode (cookie-json-block-to-alist src-block-name))))
 
 ;;; — Interactive commands —————————————————————————
 

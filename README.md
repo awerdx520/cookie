@@ -266,6 +266,36 @@ verb 的 code tag 语法 `{{...}}` 支持 elisp 求值，可直接调用 cookie-
 
 注意：verb 中 `{{...}}` 会被当作 elisp 表达式求值，请勿使用 restclient 专用的 `{{cookie:...}}` 占位符语法。
 
+#### 自动注入钩子
+
+`cookie-request-hook` 可通过 `:Verb-Map-Request:` 属性挂载到 verb 请求块，发送时自动从请求 URL 提取 domain 并注入 Cookie 头，无需手动编写 `:header`：
+
+    ** Endpoint            :verb:
+    :PROPERTIES:
+    :Verb-Map-Request: cookie-request-hook
+    :END:
+    GET /user
+
+发送请求时，verb 会调用该钩子，从请求 URL 中提取 domain，自动追加 `Cookie` 头。
+
+#### Org 源块 JSON helpers
+
+`cookie-json-block-body` / `cookie-json-block-to-alist` / `cookie-json-block-to-string` 用于读取 `#+name:` 的 json 源块并序列化为请求体：
+
+    #+name: payload
+    #+begin_src json
+    {"name": "test"}
+    #+end_src
+
+    ** POST            :verb:
+    :PROPERTIES:
+    :END:
+    POST /api/items
+    :header Content-Type: application/json
+    :body {{(cookie-json-block-to-string "payload")}}
+
+`:body` 中的 `{{(cookie-json-block-to-string "payload")}}` 在发送时求值，将 `payload` 源块的 JSON 内容序列化为请求体字符串。
+
 ## Cookie 获取策略
 
 Chrome/Edge 的获取优先级（自动选择）：

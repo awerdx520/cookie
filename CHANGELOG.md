@@ -1,5 +1,13 @@
 # Changelog
 
+## [未发布]
+
+### Added
+
+- 增强 verb.el 集成：新增 `cookie-request-hook`（`:Verb-Map-Request:` 自动注入 Cookie 头）与 `cookie-json-block-body` / `cookie-json-block-to-alist` / `cookie-json-block-to-string`（Org 源块 JSON helpers）
+- 更新 README.md 与 examples/verb-example.org：补充自动注入钩子与 JSON helpers 用法示例
+- 修复：`cookie-json-block-to-alist` 数组解析为 list（json-array-type 'list），与项目惯例一致
+
 ## [1.0.0] - 2026-08-02
 
 ### Changed

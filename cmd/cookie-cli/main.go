@@ -60,6 +60,12 @@ func main() {
 	exportCmd := flag.NewFlagSet("export", flag.ExitOnError)
 	exportDomain := exportCmd.String("domain", "", "要导出的域名（留空导出全部）")
 
+	nativeInstallCmd := flag.NewFlagSet("native-install", flag.ExitOnError)
+	nativeUninstallCmd := flag.NewFlagSet("native-uninstall", flag.ExitOnError)
+
+	doctorCmd := flag.NewFlagSet("doctor", flag.ExitOnError)
+	doctorBrowser := doctorCmd.String("browser", "", "浏览器类型: chrome, firefox, edge（默认 chrome）")
+
 	if len(os.Args) < 2 {
 		printHelp()
 		os.Exit(1)
@@ -84,6 +90,19 @@ func main() {
 	case "export":
 		exportCmd.Parse(os.Args[2:])
 		handleExport(*exportDomain)
+	case "native-install":
+		nativeInstallCmd.Parse(os.Args[2:])
+		if err := native.InstallHost(); err != nil {
+			log.Fatalf("安装 Native Messaging Host 失败: %v", err)
+		}
+	case "native-uninstall":
+		nativeUninstallCmd.Parse(os.Args[2:])
+		if err := native.UninstallHost(); err != nil {
+			log.Fatalf("卸载 Native Messaging Host 失败: %v", err)
+		}
+	case "doctor":
+		doctorCmd.Parse(os.Args[2:])
+		handleDoctor(*doctorBrowser)
 	default:
 		printHelp()
 		os.Exit(1)
@@ -106,6 +125,9 @@ func printHelp() {
   serve                   启动 Cookie Bridge HTTP + WebSocket 服务
   export                  通过 Native Messaging 导出 Cookie 到本地文件
   native-messaging-host   作为 Chrome Native Messaging Host 运行（由扩展自动启动）
+  native-install           注册 Native Messaging Host（自动检测 WSL2）
+  native-uninstall         移除 Native Messaging Host 注册
+  doctor                   诊断所有 Cookie 获取模式
 
 浏览器:
   chrome    Google Chrome（默认）
@@ -131,6 +153,8 @@ Cookie 获取优先级 (Chrome/Edge):
   cookie-cli list                                         # 列出所有域名
   cookie-cli export -domain example.com                   # 导出 Cookie 到本地文件
   cookie-cli serve                                        # 启动 Bridge 服务
+  cookie-cli native-install                          # 注册 Native Messaging Host
+  cookie-cli doctor                                  # 诊断各模式是否可用
 
 HTTP API (serve 模式):
   curl 'http://127.0.0.1:8008/cookies?domain=example.com'

@@ -16,3 +16,5 @@
 - 更新：README.md、examples/restclient-example.rest、aur/PKGBUILD 中全部引用
 - 新增 org-verb (verb.el) 集成：code tag `{{(cookie-get-value ...)}}` 直接注入 Cookie，新增示例 `examples/verb-example.org`
 - 修复：AUR 打包脚本 `cookie-native-install` 增加 WSL2 分支（.bat 启动器 + Windows 注册表 HKCU 注册），新增 `cookie-native-uninstall` 卸载脚本
+- 新增 `cookie-cli native-install` / `native-uninstall`（Native Messaging Host 注册/移除，自动检测 WSL2）
+- 新增 `cookie-cli doctor`（诊断 Native Messaging / Bridge HTTP / 文件导出 / SQLite 直读 / 扩展 ID 五模式）

@@ -34,7 +34,7 @@ go.work.sum
 *.elc
 
 # Binary executables
-cookie-cli
+/cookie-cli
 
 # Packaging
 .cask/

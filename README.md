@@ -105,6 +105,9 @@ cookie-cli list [-browser <浏览器>] [-cache-expire <秒>]
 cookie-cli serve [-port <端口>]
 cookie-cli export [-domain <域名>]
 cookie-cli native-messaging-host
+cookie-cli native-install
+cookie-cli native-uninstall
+cookie-cli doctor [-browser <浏览器>]
 ```
 
 | 子命令 | 说明 |
@@ -114,6 +117,9 @@ cookie-cli native-messaging-host
 | `serve` | 启动 Cookie Bridge HTTP + WebSocket 服务 |
 | `export` | 通过 Native Messaging 导出 Cookie 到本地文件 |
 | `native-messaging-host` | 作为 Chrome Native Messaging Host 运行（由扩展自动启动） |
+| `native-install` | 注册 Native Messaging Host（自动检测 WSL2，Chrome 在 Windows 时注册 Windows 注册表） |
+| `native-uninstall` | 移除 Native Messaging Host 注册 |
+| `doctor` | 诊断所有 Cookie 获取模式（Native Messaging / Bridge HTTP / 文件导出 / SQLite 直读 / 扩展 ID） |
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
@@ -123,6 +129,23 @@ cookie-cli native-messaging-host
 | `-format` | — | 输出格式：`header`（Cookie 头格式）、`json`（JSON 数组） |
 | `-cache-expire` | `-1`（未传参） | 仅 `get` / `list`：使用 `~/.cookie/export.json` 回退时的最大文件年龄（秒）。`-1` 表示沿用 `COOKIE_CACHE_EXPIRE` 环境变量或默认 `300`；`0` 表示不限制。**优先级：命令行高于环境变量** |
 | `-port` | `8008` | Bridge 服务监听端口 |
+
+### doctor 诊断命令
+
+`cookie-cli doctor` 一键检查各 Cookie 获取模式是否可用：
+
+```
+=== Cookie 获取模式诊断 ===
+浏览器: chrome
+
+[1/5] Native Messaging ..... 可用: socket 已连接
+[2/5] Bridge HTTP .......... 不可用: 服务未运行 (http://127.0.0.1:8008/health)
+[3/5] 文件导出 ............. 不可用: ~/.cookie/export.json 不存在
+[4/5] SQLite 直读 .......... 不可用: 浏览器锁定数据库 (permission denied)
+[5/5] manifest 扩展 ID ..... 通过
+
+建议: 当前可直接使用 Native Messaging 模式。
+```
 
 ### 输出格式
 
@@ -284,6 +307,8 @@ make help              # 显示帮助
 
 ### Native Messaging 不工作
 
+- 可运行 `cookie-cli doctor` 快速定位问题
+- 注册/移除 host 用 `cookie-cli native-install` / `cookie-cli native-uninstall`（替代原 `make native-install` 脚本，两者等效）
 - 确认已运行 `make native-install`
 - 确认 manifest 中的 `allowed_origins` 包含正确的扩展 ID
 - 在 Chrome 扩展页面查看 Service Worker 日志中是否有 "Native Messaging" 相关错误

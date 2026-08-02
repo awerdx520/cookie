@@ -53,3 +53,8 @@ dist/
 
 ####
 .cursor
+
+# AUR 构建产物
+aur/cookie-cli-git/
+aur/pkg/
+aur/src/

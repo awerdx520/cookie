@@ -37,6 +37,12 @@ package() {
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
     install -Dm644 elisp/cookie.el "$pkgdir/usr/share/emacs/site-lisp/cookie.el"
 
+    # Cookie Bridge 扩展（供用户加载/复制到浏览器）
+    install -Dm644 extension/manifest.json "$pkgdir/usr/share/cookie-cli/extension/manifest.json"
+    install -Dm644 extension/background.js "$pkgdir/usr/share/cookie-cli/extension/background.js"
+    install -Dm644 extension/offscreen.html "$pkgdir/usr/share/cookie-cli/extension/offscreen.html"
+    install -Dm644 extension/offscreen.js "$pkgdir/usr/share/cookie-cli/extension/offscreen.js"
+
     # Native Messaging Host manifest template
     install -Dm644 /dev/stdin "$pkgdir/usr/lib/cookie-cli/native-messaging/com.cookie.bridge.json" <<EOF
 {

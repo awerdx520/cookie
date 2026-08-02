@@ -155,6 +155,14 @@ func extensionDirCandidates() []extDirCandidate {
 			dirs = append(dirs, extDirCandidate{wslPath: absDir, winPath: absDir})
 		}
 	}
+
+	// Linux 原生：系统扩展目录（AUR 包携带 /usr/share/cookie-cli/extension）
+	if isDir("/usr/share/cookie-cli/extension") {
+		dirs = append(dirs, extDirCandidate{
+			wslPath: "/usr/share/cookie-cli/extension",
+			winPath: "/usr/share/cookie-cli/extension",
+		})
+	}
 	return dirs
 }
 
@@ -188,7 +196,11 @@ func resolveExtensionID() (string, string) {
 func notifyExtensionLoading(extID string) {
 	dirs := extensionDirCandidates()
 	if len(dirs) == 0 {
-		fmt.Println("提示: 未找到扩展目录，请先复制扩展（make ext-copy 或手动复制到目标目录）")
+		if isDir("/usr/share/cookie-cli/extension") {
+			fmt.Println("提示: 未找到扩展目录，请从 /usr/share/cookie-cli/extension 复制到目标目录（WSL2: C:\\Users\\<user>\\cookie-bridge-extension；或 make ext-copy）")
+		} else {
+			fmt.Println("提示: 未找到扩展目录（AUR 安装后扩展位于 /usr/share/cookie-cli/extension，请检查安装）")
+		}
 		return
 	}
 	fmt.Printf("扩展 ID 已自动检测/预计算: %s\n", extID)

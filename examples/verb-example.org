@@ -1,0 +1,26 @@
+# -*- org -*-
+# org-verb (verb.el) 与 cookie.el 集成示例
+#
+# 前置条件：
+#   1. cookie-cli 可用（native-messaging 已安装，或 cookie-cli serve 已启动）
+#   2. Emacs 中已加载 cookie.el:
+#      (add-to-list 'load-path "/path/to/cookie/elisp")
+#      (require 'cookie)
+#
+# verb 的 code tag 语法 {{...}} 会对内容做 elisp 求值。
+# 在请求块中光标处按 C-c C-c（verb-send-request-on-point）发送请求。
+
+* 方法一：单个 Cookie 注入 Authorization
+
+:GET https://api.example.com/user/profile
+:header Authorization: Bearer {{(cookie-get-value "api.example.com" "auth_token")}}
+
+* 方法二：全部 Cookie 注入 Cookie 头
+
+:GET https://api.example.com/data
+:header Cookie: {{(cookie-header "api.example.com")}}
+
+* 方法三：仅走 Bridge HTTP API（不回退 CLI）
+
+:GET https://api.example.com/submit
+:header Cookie: session={{(cookie-http-get "api.example.com" "sessionid")}}

@@ -222,9 +222,19 @@ curl 'http://127.0.0.1:8008/cookies?domain=example.com&format=raw'
 
 ## Emacs 集成
 
-项目提供 `elisp/restclient-cookie.el`，可与 [restclient.el](https://github.com/pashky/restclient.el) 集成，在 HTTP 请求中自动注入 Cookie。详细配置和用法参见该文件头部注释。
+项目提供 `elisp/cookie.el`，可与 [restclient.el](https://github.com/pashky/restclient.el) 集成，在 HTTP 请求中自动注入 Cookie。详细配置和用法参见该文件头部注释。
 
-重放请求前若需最新 Cookie，可 `M-x restclient-cookie-refresh-cache`（或 `restclient-cookie-clear-cache`）清除 Emacs 缓存；`restclient-cookie-cache-expire` 大于 0 时，包内调用 `cookie-cli get` 会自动带上 `-cache-expire`，与 CLI 行为对齐。
+重放请求前若需最新 Cookie，可 `M-x cookie-refresh-cache`（或 `cookie-clear-cache`）清除 Emacs 缓存；`cookie-cache-expire` 大于 0 时，包内调用 `cookie-cli get` 会自动带上 `-cache-expire`，与 CLI 行为对齐。
+
+### org-verb (verb.el) 集成
+
+verb 的 code tag 语法 `{{...}}` 支持 elisp 求值，可直接调用 cookie-* 函数注入 Cookie：
+
+    :GET https://api.example.com/user
+    :header Authorization: Bearer {{(cookie-get-value "api.example.com" "auth_token")}}
+    :header Cookie: {{(cookie-header "api.example.com")}}
+
+注意：verb 中 `{{...}}` 会被当作 elisp 表达式求值，请勿使用 restclient 专用的 `{{cookie:...}}` 占位符语法。
 
 ## Cookie 获取策略
 

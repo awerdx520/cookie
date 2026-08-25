@@ -8,6 +8,10 @@
 - 更新 README.md 与 examples/verb-example.org：补充自动注入钩子与 JSON helpers 用法示例
 - 修复：`cookie-json-block-to-alist` 数组解析为 list（json-array-type 'list），与项目惯例一致
 
+### Fixed
+
+- 修复：Firefox WAL 模式下 Cookie 读取不全（缺失 `token`/`authority_token`）。根因是 Firefox 的 `cookies.sqlite` 采用 WAL 存储，最近写入的 Cookie 停留在 `-wal` 日志未合并进主文件，而旧逻辑用 `immutable=1` 直读且回退只复制主文件，丢弃了 WAL 数据。现改为复制三件套（主文件 + `-wal` + `-shm`）到临时目录后 `mode=ro` 打开，复用 `store.go` 的 WSL2 跨边界复制能力绕过 Firefox 独占锁。
+
 ## [1.0.0] - 2026-08-02
 
 ### Changed

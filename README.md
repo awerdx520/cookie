@@ -307,7 +307,7 @@ Chrome/Edge 的获取优先级（自动选择）：
 | 3 | 文件导出 | `~/.cookie/export.json` 存在且未过期 | 读取之前导出的 Cookie |
 | 4 | SQLite 直读 | 回退 | 需关闭浏览器，受加密限制 |
 
-Firefox 直接读取 SQLite 数据库（明文存储，无需解密）。
+Firefox 直接读取 SQLite 数据库（明文存储，无需解密）。Firefox 使用 SQLite WAL 模式，读取时会复制 `cookies.sqlite` 及其 `-wal` / `-shm` 伴生文件到临时目录后打开，确保能读到尚未 checkpoint 的最新 Cookie（如最近登录产生的 `token`）。
 
 ## WSL2 说明
 

@@ -3,6 +3,7 @@ package cookie
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -202,32 +203,100 @@ func (s *FirefoxStore) ListDomains() ([]string, error) {
 	return domains, nil
 }
 
-// openDB 打开 Firefox Cookie 数据库
-// Firefox 运行时会锁定数据库，所以需要复制到临时文件
-func (s *FirefoxStore) openDB() (*sql.DB, func(), error) {
-	db, err := sql.Open("sqlite3", s.dbPath+"?mode=ro&immutable=1&_timeout=5000")
-	if err == nil {
-		if err := db.Ping(); err == nil {
-			return db, func() { db.Close() }, nil
+// copyFileTo 复制单个文件到指定目标路径。
+// 源路径以 /mnt/ 开头（WSL2 访问 Windows 文件）时，Firefox 可能独占锁定，
+// 需走 Windows 端复制（copyViaCreateFileW → copyViaCmdCopy），再用 moveFromWindows 搬回 Linux 侧。
+func copyFileTo(dst, src string) error {
+	if isWSL2() && strings.HasPrefix(src, "/mnt/") {
+		winSrc := wslPathToWindows(src)
+		// 生成唯一 Windows 临时路径（参考 store.go copyToTempViaWindows 的做法，但需唯一避免三件套冲突）
+		pid := os.Getpid()
+		// 用文件名后缀区分三件套，避免覆盖
+		base := filepath.Base(src) // cookies.sqlite / cookies.sqlite-wal / cookies.sqlite-shm
+		winTmp := fmt.Sprintf(`C:\Windows\Temp\cookie_%d_%s`, pid, base)
+		wslTmp := fmt.Sprintf("/mnt/c/Windows/Temp/cookie_%d_%s", pid, base)
+		defer os.Remove(wslTmp)
+
+		if err := copyViaCreateFileW(winSrc, winTmp); err != nil {
+			if err2 := copyViaCmdCopy(winSrc, winTmp); err2 != nil {
+				return fmt.Errorf("Windows 端复制 %s 失败: %v（CreateFileW）/%v（cmd copy）", base, err, err2)
+			}
 		}
-		db.Close()
+		linuxTmp, err := moveFromWindows(wslTmp)
+		if err != nil {
+			return fmt.Errorf("搬回 Linux 侧失败: %w", err)
+		}
+		defer os.Remove(linuxTmp)
+		return os.Rename(linuxTmp, dst)
 	}
 
-	tmpPath, err := copyToTemp(s.dbPath)
+	in, err := os.Open(src)
 	if err != nil {
-		return nil, nil, fmt.Errorf("复制到临时文件失败: %w", err)
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+// copyFirefoxDB 将 Firefox Cookie 数据库三件套（主文件 + WAL + SHM）复制到独立临时目录，
+// 保持 cookies.sqlite 原名，使 SQLite 打开时能自动应用 WAL 日志。返回临时目录路径。
+func copyFirefoxDB(dbPath string) (string, error) {
+	dir, err := os.MkdirTemp("", "cookie-firefox-*")
+	if err != nil {
+		return "", fmt.Errorf("创建临时目录失败: %w", err)
 	}
 
-	db, err = sql.Open("sqlite3", tmpPath+"?mode=ro&_timeout=5000")
+	// 主文件必须存在
+	mainDst := filepath.Join(dir, "cookies.sqlite")
+	if err := copyFileTo(mainDst, dbPath); err != nil {
+		os.RemoveAll(dir)
+		return "", fmt.Errorf("复制主文件失败: %w", err)
+	}
+
+	// -wal 与 -shm 可能不存在（Firefox 关闭并 checkpoint 后），忽略不存在错误
+	for _, suffix := range []string{"-wal", "-shm"} {
+		src := dbPath + suffix
+		if _, err := os.Stat(src); err != nil {
+			continue // 不存在则跳过
+		}
+		if err := copyFileTo(filepath.Join(dir, "cookies.sqlite"+suffix), src); err != nil {
+			os.RemoveAll(dir)
+			return "", fmt.Errorf("复制 %s 失败: %w", suffix, err)
+		}
+	}
+	return dir, nil
+}
+
+// openDB 打开 Firefox Cookie 数据库。
+// Firefox 使用 WAL 模式且运行时会锁定数据库，因此复制三件套到临时目录后用 mode=ro 打开，
+// 让 SQLite 自动应用 WAL 日志，避免丢失尚未 checkpoint 的最新 Cookie。
+func (s *FirefoxStore) openDB() (*sql.DB, func(), error) {
+	dir, err := copyFirefoxDB(s.dbPath)
 	if err != nil {
-		os.Remove(tmpPath)
+		return nil, nil, fmt.Errorf("复制 Firefox Cookie 数据库失败: %w", err)
+	}
+
+	mainPath := filepath.Join(dir, "cookies.sqlite")
+	db, err := sql.Open("sqlite3", mainPath+"?mode=ro")
+	if err != nil {
+		os.RemoveAll(dir)
 		return nil, nil, fmt.Errorf("打开临时数据库失败: %w", err)
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		os.RemoveAll(dir)
+		return nil, nil, fmt.Errorf("连接临时数据库失败: %w", err)
 	}
 
 	cleanup := func() {
 		db.Close()
-		os.Remove(tmpPath)
+		os.RemoveAll(dir)
 	}
-
 	return db, cleanup, nil
 }

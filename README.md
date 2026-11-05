@@ -252,9 +252,15 @@ curl 'http://127.0.0.1:8008/cookies?domain=example.com&format=raw'
 
 ## Emacs 集成
 
+**安全提示**：`cookie.el` 会把浏览器 Cookie 注入请求；restclient 的 `:x := (cookie-get-value ...)` 与 verb 的 `:Verb-Map-Request: cookie-request-hook` 都会在**文件内容被求值时**触发取值。请只在可信的 `.http` / `.org` 文件上启用，不要打开来路不明的请求文件后直接发送。
+
 项目提供 `elisp/cookie.el`，可与 [restclient.el](https://github.com/pashky/restclient.el) 集成，在 HTTP 请求中自动注入 Cookie。详细配置和用法参见该文件头部注释。
 
-重放请求前若需最新 Cookie，可 `M-x cookie-refresh-cache`（或 `cookie-clear-cache`）清除 Emacs 缓存；`cookie-cache-expire` 大于 0 时，包内调用 `cookie-cli get` 会自动带上 `-cache-expire`，与 CLI 行为对齐。
+公共 API（`cookie-get` / `cookie-get-value` / `cookie-header` / `cookie-http-get` / `cookie-update-restclient-vars` 等）均带 `;;;###autoload`，因此只需 `(use-package cookie)`（不必写 `:commands`，也不必先 `require`）即可让 restclient 的 `:x := (cookie-get-value ...)` 在首次求值时自动加载包 —— 打开 `.http` / `.rest` 文件后直接 `C-c C-c` 就能发送，**无需先手动运行任何命令**。
+
+仅在需要强制丢弃缓存、拿最新登录态时，才需要手动 `M-x cookie-refresh-cache`（或 `cookie-clear-cache`）清除 Emacs 缓存；`cookie-cache-expire` 大于 0 时，包内调用 `cookie-cli get` 会自动带上 `-cache-expire`，与 CLI 行为对齐。
+
+获取失败（CLI/bridge 不可用、未登录等）时返回空字符串，并按 `cookie-negative-cache-expire`（默认 10 秒）**短缓存**：既不会像成功值那样固化 `cookie-cache-expire`（默认 300 秒），也避免同一次 restclient 发送内多个变量各触发一次外部调用（CLI 不可用时单次约 4 秒）。CLI 调用失败时包内会额外重试一次（约 +0.2s），但仅在 `cookie-cli-path` 可执行时才重试；将 `cookie-negative-cache-expire` 设为 0 则失败结果完全不缓存（每次取值都会重新尝试）。
 
 ### org-verb (verb.el) 集成
 

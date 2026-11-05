@@ -98,6 +98,19 @@
   :type 'integer
   :group 'cookie)
 
+(defcustom cookie-negative-cache-expire 10
+  "获取失败（空值）结果的缓存时间（秒）。
+
+用于避免同一次 restclient 发送内多个变量重复触发 CLI/HTTP 调用：
+失败结果短暂缓存，既不会像成功值那样固化 300 秒，也不会让每次取值
+都重跑外部进程。设为 0 表示失败结果完全不缓存。
+`cookie-refresh-cache' 会同时丢弃成功与失败缓存。
+
+本项与 `cookie-cache-expire' 相互独立（负缓存可比成功缓存更短或更长）；
+`cookie-cache-expire' 为 0（禁用缓存）时本项也一并失效。"
+  :type 'integer
+  :group 'cookie)
+
 (defcustom cookie-prefer-bridge t
   "非 nil 时优先通过 Bridge HTTP API 获取 Cookie，失败再回退到 CLI。"
   :type 'boolean
@@ -106,21 +119,37 @@
 ;;; — Cache ——————————————————————————————————————————
 
 (defvar cookie--cache (make-hash-table :test 'equal)
-  "Cookie 缓存。键为 (method browser domain name)，值为 (value . timestamp)。")
+  "Cookie 缓存。键为 (method browser domain name)，值为 (value timestamp . ttl)。")
 
 (defun cookie--cache-get (key)
-  "从缓存获取 KEY 对应的值，过期则返回 nil。"
+  "从缓存获取 KEY 对应的值；已过期则清除该条目并返回 nil。
+
+兼容旧格式条目 `(value . timestamp)'：无法解析出数字时间戳时视为过期，
+清除后返回 nil，避免升级/热重载后在 `car'/`cdr' 上报类型错误。"
   (when (> cookie-cache-expire 0)
     (let ((entry (gethash key cookie--cache)))
-      (when (and entry
-                 (< (- (float-time) (cdr entry)) cookie-cache-expire))
-        (car entry)))))
+      (when entry
+        (let* ((value (car-safe entry))
+               (timestamp (car-safe (cdr-safe entry)))
+               (ttl (or (cdr-safe (cdr-safe entry)) cookie-cache-expire)))
+          (if (and (numberp timestamp)
+                   (< (- (float-time) timestamp) ttl))
+              value
+            (remhash key cookie--cache)
+            nil))))))
 
 (defun cookie--cache-put (key value)
-  "将 VALUE 写入缓存 KEY。"
-  (when (> cookie-cache-expire 0)
-    (puthash key (cons value (float-time)) cookie--cache))
-  value)
+  "将 VALUE 写入缓存 KEY 并返回 VALUE。
+
+成功结果按 `cookie-cache-expire' 缓存；空结果（nil 或空字符串）
+按 `cookie-negative-cache-expire' 短缓存，避免同一次发送内重复失败调用。"
+  (let ((empty-p (or (null value)
+                     (and (stringp value) (string-empty-p value)))))
+    (when (> cookie-cache-expire 0)
+      (let ((ttl (if empty-p cookie-negative-cache-expire cookie-cache-expire)))
+        (when (> ttl 0)
+          (puthash key (cons value (cons (float-time) ttl)) cookie--cache))))
+    value))
 
 (defun cookie--cache-clear (&optional msg)
   "清空哈希表 `cookie--cache'；若 MSG 非空则 `message' 显示。"
@@ -134,6 +163,7 @@
   (interactive)
   (cookie--cache-clear "Cookie 缓存已刷新，下次将从浏览器重新获取"))
 
+;;;###autoload
 (defun cookie-clear-cache ()
   "清除所有 Cookie 缓存。"
   (interactive)
@@ -141,7 +171,7 @@
 
 ;;; — CLI backend ————————————————————————————————————
 
-(defun cookie--call-cli (&rest args)
+(defun cookie--call-cli-once (&rest args)
   "调用 cookie-cli，传递 ARGS。返回 stdout（去除尾部换行）。出错时返回 nil。
 对 `get' 子命令且 `cookie-cache-expire' 大于 0 时，自动追加 `-cache-expire'。
 
@@ -171,6 +201,25 @@ cookie-cli 的诊断日志（如 `log.Printf'）污染 Cookie 头内容。"
       (error
        (message "cookie-cli 调用失败: %s" (error-message-string err))
        nil))))
+
+(defun cookie--cli-executable-p ()
+  "`cookie-cli-path' 是否可执行（绝对路径需存在且可执行，否则查 PATH）。"
+  (if (file-name-absolute-p cookie-cli-path)
+      (file-executable-p cookie-cli-path)
+    (and (executable-find cookie-cli-path) t)))
+
+(defun cookie--call-cli (&rest args)
+  "调用 cookie-cli；进程调用失败（nil）时等待 0.2 秒重试一次。
+
+ARGS 语义同 `cookie--call-cli-once'。若 cookie-cli 不可执行则不做无谓重试
+（避免「CLI 未安装」场景每次都多付一次调用与一条 message）。
+注意：`未找到'（真实无此 Cookie）同样返回 nil，也会被重试一次——
+该成本由 `cookie-negative-cache-expire' 在缓存层兜住，同一发送周期内
+最多发生一次。"
+  (or (apply #'cookie--call-cli-once args)
+      (when (cookie--cli-executable-p)
+        (sleep-for 0.2)
+        (apply #'cookie--call-cli-once args))))
 
 ;;; — HTTP backend (Bridge) —————————————————————————
 
@@ -210,6 +259,7 @@ PATH 为路径（如 \"/cookies\"），PARAMS 为 alist 查询参数。
 
 ;;; — Public API —————————————————————————————————————
 
+;;;###autoload
 (defun cookie-get (domain &optional name browser)
   "获取指定 DOMAIN 的 Cookie 值（字符串）。
 
@@ -229,11 +279,13 @@ BROWSER 指定浏览器类型，nil 使用 `cookie-default-browser'。
                   (cookie--get-via-bridge domain name))
              (cookie--get-via-cli domain name br))))))
 
+;;;###autoload
 (defun cookie-get-value (domain name &optional browser)
   "获取指定 DOMAIN 和 NAME 的 Cookie 值。
 `cookie-get' 的便捷包装。"
   (cookie-get domain name browser))
 
+;;;###autoload
 (defun cookie-header (domain &optional browser)
   "获取 DOMAIN 的所有 Cookie，以 HTTP Cookie 头格式返回。
 
@@ -248,6 +300,7 @@ BROWSER 指定浏览器类型，nil 使用 `cookie-default-browser'。
          (or (cookie--header-via-bridge domain)
              (cookie--header-via-cli domain br))))))
 
+;;;###autoload
 (defun cookie-http-get (domain &optional name)
   "通过 Bridge HTTP API 获取 Cookie 值。不回退到 CLI。
 失败时返回空字符串。"
@@ -332,13 +385,14 @@ BROWSER 指定浏览器类型，nil 使用 `cookie-default-browser'。
                            (format "cookie:%s %s" domain name)
                          (format "cookie:%s" domain)))
              (value (cookie-get domain name)))
-        (if (or (null value) (string-empty-p value))
+        (if (string-empty-p (or value ""))
             (restclient-remove-var var-name)
           (restclient-set-var var-name value)))))
   (message "Cookie 变量已更新"))
 
 ;;; — verb.el 集成 —————————————————————————————————
 
+;;;###autoload
 (defun cookie-request-hook (rs)
   "Verb-Map-Request 钩子函数：从请求 URL 提取 DOMAIN，自动注入 Cookie 头。
 适用于 :Verb-Map-Request: 属性，自动完成浏览器 Cookie 注入。"
@@ -353,6 +407,7 @@ BROWSER 指定浏览器类型，nil 使用 `cookie-default-browser'。
                     (list (cons "Cookie" cookie-val)))))
     rs))
 
+;;;###autoload
 (defun cookie-json-block-body (src-block-name)
   "返回当前 buffer 中 #+name: SRC-BLOCK-NAME 对应源块的正文字符串。
 找不到块时 signal `error'。"
@@ -364,6 +419,7 @@ BROWSER 指定浏览器类型，nil 使用 `cookie-default-browser'。
       (goto-char loc)
       (org-element-property :value (org-element-at-point)))))
 
+;;;###autoload
 (defun cookie-json-block-to-alist (src-block-name)
   "将 #+name: SRC-BLOCK-NAME 的 json 源块解析为 alist（不执行 Babel）。
 JSON 对象解析为 alist，数组解析为 list。"
@@ -371,6 +427,7 @@ JSON 对象解析为 alist，数组解析为 list。"
         (json-array-type 'list))
     (json-read-from-string (cookie-json-block-body src-block-name))))
 
+;;;###autoload
 (defun cookie-json-block-to-string (src-block-name)
   "将 #+name: SRC-BLOCK-NAME 的 json 源块序列化为 JSON 字符串字面量。"
   (prin1-to-string (json-encode (cookie-json-block-to-alist src-block-name))))

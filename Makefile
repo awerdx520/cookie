@@ -7,8 +7,11 @@ GO       := go
 GOFLAGS  := -trimpath
 PORT     ?= 8008
 
+EMACS    ?= emacs
+ELISP    := elisp/cookie.el
 
-.PHONY: all build run serve install clean fmt vet test ext-copy native-install native-uninstall help
+
+.PHONY: all build run serve install clean fmt vet test elisp-check ext-copy native-install native-uninstall help
 
 all: build
 
@@ -58,6 +61,12 @@ vet:  ## 静态检查
 
 test:  ## 运行测试
 	$(GO) test ./...
+
+elisp-check:  ## Elisp 静态门禁：autoload 数量下限 + 括号平衡
+	@n=$$(grep -c '^;;;###autoload' $(ELISP)); \
+	if [ "$$n" -lt 13 ]; then echo "FAIL: $(ELISP) 的 ;;;###autoload 数量为 $$n（应 >= 13）"; exit 1; fi; \
+	echo "OK: $$n 处 autoload"
+	@$(EMACS) --batch --eval "(progn (find-file \"$(ELISP)\") (check-parens) (message \"OK: check-parens\"))"
 
 ## ── 清理 ─────────────────────────────────────────────
 

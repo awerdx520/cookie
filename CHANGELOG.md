@@ -10,6 +10,9 @@
 
 ### Fixed
 
+- 修复：restclient 中 `:x := (cookie-get-value ...)` 首次求值报 `void-function cookie-get-value`。根因是公共 API 未带包级 autoload，`(use-package cookie ...)` 延迟加载时只有 `:general` 绑定的命令有隐式 autoload，restclient 里以普通函数调用形式出现的符号无任何入口。现为 `cookie-get` / `cookie-get-value` / `cookie-header` / `cookie-http-get` / `cookie-clear-cache` / `cookie-request-hook` / `cookie-json-block-*` 补 `;;;###autoload`，`(use-package cookie)` 后直接 `C-c C-c` 即可，无需先手动 `M-x cookie-refresh-cache`
+- 修复：`cookie--cache-put` 对空值（nil / 空字符串）改为按 `cookie-negative-cache-expire`（默认 10 秒）**短缓存**，不再按 `cookie-cache-expire` 固化 300 秒。此前一次冷启动失败（CLI/bridge 不可用、未登录）会被固化为 300 秒空 Cookie，下一次请求拿不到正确值也不重试；而完全不缓存又会让同一次发送内 N 个变量各触发一次 CLI（CLI 不可用时单次约 4 秒）。缓存条目改为 `(value timestamp . ttl)` 支持 per-entry TTL，`cookie--cache-get` 命中过期条目时顺手 `remhash`
+- 修复：`cookie--call-cli` 失败（nil）时 `sleep-for` 0.2s 后重试一次，但仅在 `cookie-cli-path` 可执行时重试（新增 `cookie--cli-executable-p`；主体逻辑保持不变，改名为 `cookie--call-cli-once` 并保留 `-cache-expire` 追加与 stderr 丢弃）
 - 修复：Firefox WAL 模式下 Cookie 读取不全（缺失 `token`/`authority_token`）。根因是 Firefox 的 `cookies.sqlite` 采用 WAL 存储，最近写入的 Cookie 停留在 `-wal` 日志未合并进主文件，而旧逻辑用 `immutable=1` 直读且回退只复制主文件，丢弃了 WAL 数据。现改为复制三件套（主文件 + `-wal` + `-shm`）到临时目录后 `mode=ro` 打开，复用 `store.go` 的 WSL2 跨边界复制能力绕过 Firefox 独占锁。
 
 ## [1.0.0] - 2026-08-02
